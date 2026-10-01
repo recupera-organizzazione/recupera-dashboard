@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "import:csv": "node src/scripts/import-csv.js"
+    "import:csv": "node src/scripts/import-csv.js",
+    "create:admin": "node src/scripts/create-admin.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

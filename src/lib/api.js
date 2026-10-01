@@ -5,6 +5,39 @@
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
 
+// Sessione admin: token in sessionStorage (scade con la scheda; mai in repo).
+// Le credenziali non transitano mai qui: solo POST /auth/login le verifica.
+const TOKEN_KEY = 'recupera_token';
+
+export function getToken() {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setToken(token) {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    /* storage non disponibile: sessione solo in memoria di pagina */
+  }
+}
+
+export function clearToken() {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* niente da pulire */
+  }
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function buildQuery(params = {}) {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -16,8 +49,8 @@ function buildQuery(params = {}) {
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options.headers },
   });
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
@@ -36,6 +69,27 @@ async function request(path, options = {}) {
 
 export function getHealth() {
   return request('/health');
+}
+
+// Auth admin singolo: login salva il token, logout lo revoca lato client.
+// getMe verifica la sessione all'avvio (gate in App.jsx).
+export async function login(username, password) {
+  const body = await request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  const data = body?.data ?? body;
+  if (!data?.token) throw new Error('Risposta di accesso non valida.');
+  setToken(data.token);
+  return { username: data.username };
+}
+
+export function logout() {
+  clearToken();
+}
+
+export function getMe() {
+  return request('/auth/me').then((body) => body?.data ?? body);
 }
 
 export function getAsl() {
@@ -88,10 +142,14 @@ export function getExportUrl({ settimana = '', asl = '' } = {}) {
 }
 
 export async function postAdminImport(file) {
-  // POST /admin/import multipart — solo admin, mai con ANON key
+  // POST /admin/import multipart — solo admin (Bearer richiesto dal backend)
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_BASE}/admin/import`, { method: 'POST', body: form });
+  const res = await fetch(`${API_BASE}/admin/import`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: form,
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error?.message || body?.error || `Errore HTTP ${res.status}`);

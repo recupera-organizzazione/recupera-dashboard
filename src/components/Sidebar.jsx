@@ -31,7 +31,7 @@ export default function Sidebar() {
           <br />
           <strong>Regione Puglia</strong>
         </p>
-        <p className="data-note">Dataset sintetico · demo</p>
+        <p className="data-note">Anteprima dimostrativa</p>
       </div>
     </aside>
   );

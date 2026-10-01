@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
+import Login from './components/Login.jsx';
 import MetricGrid from './components/MetricGrid.jsx';
+import { clearToken, getMe, getToken } from './lib/api.js';
+import { queryClient } from './lib/queryClient.js';
+import { STR } from './lib/strings.js';
 
 // Settimana unica coperta dal CSV — cfr. AGENTS.md §3.
 // Quando arriveranno nuovi CSV (Fase 5), diventerà un filtro UI.
@@ -42,7 +46,46 @@ function Simulator() {
 
 function App() {
   const [refreshed, setRefreshed] = useState(false);
-  return <div className="app-shell"><Sidebar /><main className="main-content" id="overview"><Topbar /><section className="intro-row"><div><p className="section-kicker">Giovedì 01 ottobre 2026</p><h2>La rete sta recuperando tempo.</h2><p className="subline">Ogni slot riaperto è una visita anticipata per un cittadino.</p></div><button className="outline-button" type="button" onClick={() => setRefreshed(true)}>{refreshed ? '✓ ' : '↻ '}<span>{refreshed ? 'Dati aggiornati' : 'Aggiorna dati'}</span></button></section><MetricGrid settimana={SETTIMANA_DEFAULT} /><section className="content-grid"><RecoveryChart /><ReassignmentQueue /></section><section className="bottom-grid"><TerritoryPanel /><Simulator /></section><footer><span>ReCUPera · sistema di ottimizzazione delle liste d'attesa</span><span>Fonte: Monitoraggio tempi di attesa · Regione Puglia</span></footer></main></div>;
+  // Gate di sessione: senza token valido si mostra solo Login.
+  // All'avvio, un token esistente viene verificato via GET /auth/me.
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(() => !!getToken());
+
+  useEffect(() => {
+    if (!getToken()) return;
+    getMe()
+      .then((me) => {
+        setUser(me);
+        setChecking(false);
+      })
+      .catch(() => {
+        clearToken();
+        setUser(null);
+        setChecking(false);
+      });
+  }, []);
+
+  function handleLogout() {
+    clearToken();
+    queryClient.clear();
+    setUser(null);
+  }
+
+  if (checking) {
+    return (
+      <div className="login-screen">
+        <div className="login-card" role="status">
+          <p>{STR.login.checking}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLoggedIn={(me) => setUser(me)} />;
+  }
+
+  return <div className="app-shell"><Sidebar /><main className="main-content" id="overview"><Topbar username={user.username} onLogout={handleLogout} /><section className="intro-row"><div><p className="section-kicker">Giovedì 01 ottobre 2026</p><h2>La rete sta recuperando tempo.</h2><p className="subline">Ogni slot riaperto è una visita anticipata per un cittadino.</p></div><button className="outline-button" type="button" onClick={() => setRefreshed(true)}>{refreshed ? '✓ ' : '↻ '}<span>{refreshed ? 'Dati aggiornati' : 'Aggiorna dati'}</span></button></section><MetricGrid settimana={SETTIMANA_DEFAULT} /><section className="content-grid"><RecoveryChart /><ReassignmentQueue /></section><section className="bottom-grid"><TerritoryPanel /><Simulator /></section><footer><span>ReCUPera · sistema di ottimizzazione delle liste d'attesa</span><span>Fonte: Monitoraggio tempi di attesa · Regione Puglia</span></footer></main></div>;
 }
 
 export default App;

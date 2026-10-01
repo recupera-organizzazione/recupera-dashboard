@@ -1,8 +1,10 @@
+import crypto from 'node:crypto';
 import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { stringify } from 'csv-stringify/sync';
-import { hasServiceRole, hasSupabase } from '../db/supabaseClient.js';
+import { hasServiceRole, hasSupabase, supabase } from '../db/supabaseClient.js';
+import { loginThrottle, requireAdmin, signToken, verifyPassword } from '../auth.js';
 import {
   SETTIMANA_DEFAULT,
   getCancellazioni,
@@ -31,6 +33,44 @@ router.get('/health', (_req, res) => {
   res.json({ data: { status: 'ok', settimana_default: SETTIMANA_DEFAULT, righe_csv_locale: righe, supabase: hasSupabase } });
 });
 
+// ── Auth admin singolo ─────────────────────────────────────────────────────
+// POST /auth/login {username, password} → { token, username, expires_in }.
+// Verifica hash scrypt in admin_users (mai in chiaro, mai enumerazione:
+// stesso messaggio per utente inesistente o password errata).
+const loginSchema = z.object({
+  username: z.string().min(1).max(64),
+  password: z.string().min(1).max(256),
+});
+
+router.post('/auth/login', loginThrottle, async (req, res) => {
+  const parsed = loginSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, 400, 'validation_error', 'Nome utente e password sono obbligatori.');
+  const { username, password } = parsed.data;
+  const invalid = () => err(res, 401, 'invalid_credentials', 'Credenziali non valide. Riprova.');
+
+  if (supabase) {
+    const { data, error } = await supabase.from('admin_users')
+      .select('username, password_hash').eq('username', username).maybeSingle();
+    if (error) return err(res, 500, 'auth_error', error.message);
+    if (!data || !verifyPassword(password, data.password_hash)) return invalid();
+  } else {
+    // Dev locale senza Supabase: credenziali bootstrap solo da env (mai in repo).
+    if (!process.env.ADMIN_USER || !process.env.ADMIN_PASSWORD) {
+      return err(res, 503, 'auth_unavailable', 'Login non disponibile: configura Supabase oppure ADMIN_USER/ADMIN_PASSWORD.');
+    }
+    const userOk = username.length === process.env.ADMIN_USER.length
+      && crypto.timingSafeEqual(Buffer.from(username), Buffer.from(process.env.ADMIN_USER));
+    if (!userOk || password !== process.env.ADMIN_PASSWORD) return invalid();
+  }
+  res.json({ data: { token: signToken(username), username, expires_in: 8 * 3600 } });
+});
+
+// GET /auth/me — verifica sessione (usata dal frontend all'avvio).
+router.get('/auth/me', requireAdmin, (req, res) => {
+  res.json({ data: { username: req.admin.username } });
+});
+
+// ── Letture pubbliche ──────────────────────────────────────────────────────
 router.get('/asl', async (_req, res) => {
   try {
     const { rows } = await listAsl();
@@ -160,9 +200,10 @@ router.get('/export.csv', async (req, res) => {
   } catch (e) { err(res, 500, 'export_error', e.message); }
 });
 
-// POST /admin/import (multipart name=file) — upsert idempotente via service_role;
-// senza chiavi: dry-run di validazione sui conteggi noti (414/6/69).
-router.post('/admin/import', upload.single('file'), async (req, res) => {
+// POST /admin/import (multipart name=file) — SOLO admin autenticato.
+// Upsert idempotente via service_role; senza chiavi Supabase: dry-run di
+// validazione sui conteggi noti (414/6/69).
+router.post('/admin/import', requireAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return err(res, 400, 'validation_error', 'campo file mancante (multipart name=file)');
   try {
     const rows = parseUploadedCsv(req.file.buffer);

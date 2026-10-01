@@ -160,3 +160,16 @@ footer{display:block;line-height:1.7}
 .kpi-real.error{background:#fdf3ef;border-color:#e8c4b8;color:#8a4a3a}
 .kpi-real.empty{background:#f7faf6;color:#75837b}
 .skeleton{display:inline-block;width:120px;height:10px;background:#edf1ec;border-radius:3px}
+/* Login operatori (auth admin singolo) — riusa .brand, .eyebrow, .field-label, .primary-button */
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--paper)}
+.login-card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:32px 28px;box-shadow:0 12px 32px rgba(23,37,31,.08)}
+.login-card .brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink);font-weight:700}
+.login-card .eyebrow{margin:14px 0 4px}
+.login-card h1{margin:0 0 6px;font-size:22px;color:var(--ink)}
+.login-subtitle{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.5}
+.login-input{display:block;width:100%;box-sizing:border-box;margin:2px 0 12px;padding:10px 12px;font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:6px}
+.login-input:focus{outline:2px solid var(--green);outline-offset:1px}
+.login-submit{width:100%;margin-top:6px}
+.login-submit:disabled{opacity:.6;cursor:wait}
+.login-error{margin:0 0 12px;padding:10px 12px;font-size:12px;color:#8a4a3a;background:#fdf3ef;border:1px solid #e8c4b8;border-radius:6px}
+.login-hint{margin:14px 0 0;font-size:11px;line-height:1.5;color:var(--muted)}
