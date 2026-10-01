@@ -114,29 +114,31 @@ export async function getCancellazioni({ da, a, specialty_id, facility_id } = {}
   const { data, error } = await q;
   if (error) throw error;
 
+  // Prenotazioni per giorno di creazione (vista); disdette e riassegnazioni per giorno di
+  // DISDETTA da cancellation_events (la vista le conta nel giorno di creazione della prenotazione).
+  let ev = supabase.from('cancellation_events').select('cancelled_at, reallocated')
+    .gte('cancelled_at', daISO).lt('cancelled_at', shiftDays(aISO, 1)).limit(5000);
+  if (specialty_id) ev = ev.eq('specialty_id', specialty_id);
+  if (facility_id) ev = ev.eq('facility_id', facility_id);
+  const { data: eventi, error: evErr } = await ev;
+  if (evErr) throw evErr;
+
   // Aggrega per giorno (somma su specialty/facility) e riempi i buchi con 0.
   const byDay = new Map();
-  for (const r of data || []) {
-    const e = byDay.get(r.giorno) || { giorno: r.giorno, prenotazioni: 0, cancellate: 0, da_riassegnazione: 0 };
-    e.prenotazioni += r.prenotazioni;
-    e.cancellate += r.cancellate;
-    e.da_riassegnazione += r.da_riassegnazione;
-    byDay.set(r.giorno, e);
+  const giorno = (g) => byDay.get(g) || byDay.set(g, { giorno: g, prenotazioni: 0, cancellate: 0, da_riassegnazione: 0 }).get(g);
+  for (const r of data || []) giorno(r.giorno).prenotazioni += r.prenotazioni;
+  for (const e of eventi) {
+    const g = giorno(e.cancelled_at.slice(0, 10));
+    g.cancellate += 1;
+    if (e.reallocated) g.da_riassegnazione += 1;
   }
   const serie = [];
   for (let g = daISO; g <= aISO; g = shiftDays(g, 1)) {
     serie.push(byDay.get(g) || { giorno: g, prenotazioni: 0, cancellate: 0, da_riassegnazione: 0 });
   }
   const totalePrenotazioni = serie.reduce((s, r) => s + r.prenotazioni, 0);
-  const totaleCancellate = serie.reduce((s, r) => s + r.cancellate, 0);
-
-  // Slot recuperati reali: disdette riassegnate tracciate in cancellation_events.
-  const { count: recuperati, error: evErr } = await supabase.from('cancellation_events')
-    .select('appointment_id', { count: 'exact', head: true })
-    .eq('reallocated', true)
-    .gte('cancelled_at', daISO)
-    .lt('cancelled_at', shiftDays(aISO, 1));
-  if (evErr) throw evErr;
+  const totaleCancellate = eventi.length;
+  const recuperati = eventi.filter((e) => e.reallocated).length;
 
   return {
     disponibile: true,
@@ -146,7 +148,7 @@ export async function getCancellazioni({ da, a, specialty_id, facility_id } = {}
     totale_prenotazioni: totalePrenotazioni,
     totale_cancellate: totaleCancellate,
     tasso_cancellazione_pct: totalePrenotazioni ? totaleCancellate / totalePrenotazioni : 0,
-    slot_recuperati_riallocati: recuperati ?? 0,
+    slot_recuperati_riallocati: recuperati,
     serie,
     nota: totaleCancellate === 0
       ? 'nessuna cancellazione registrata nel periodo (dati reali dal gestionale, non stima)'
