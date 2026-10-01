@@ -28,11 +28,11 @@ Target iniziale: Regione Puglia (6 ASL).
 - Struttura: `backend/src/{index.js, routes/, db/supabaseClient.js, scripts/import-csv.js}`
 
 **Frontend:**
-- React 18 + Vite + TypeScript
-- Data fetching: React Query (TanStack Query)
-- Grafici: Recharts
-- Mappa: Leaflet + GeoJSON Puglia (i pin CSS attuali in `index.html` sono placeholder)
-- Il prototipo attuale (`index.html` + `style.css` + `app.js` vanilla) è il riferimento UI da migrare a componenti (`Dashboard.tsx`, `Territorio.tsx`, `Simulatore.tsx`).
+- React + Vite (entrypoint `src/main.jsx`, componenti in `src/App.jsx`)
+- Data fetching previsto: React Query (TanStack Query), quando sarà disponibile l'API
+- Grafici previsto: Recharts
+- Mappa prevista: Leaflet + GeoJSON Puglia (i pin CSS attuali sono ancora placeholder demo)
+- La dashboard è stata convertita da HTML/CSS/JS vanilla a componenti React mantenendo `style.css` come base visiva.
 
 **DevOps / repo:**
 - Niente Postgres locale: il DB è il progetto Supabase condiviso (niente servizio `db` in Docker; `docker-compose.yml` al massimo per la sola `api`, opzionale in dev)
@@ -86,7 +86,22 @@ Tabelle create con migration Supabase CLI (`supabase/migrations/`):
 5. **Fase 4 — territorio:** Leaflet + GeoJSON Puglia; dataset CAP→ASL se si vuole il dettaglio per CAP (oggi non esiste).
 6. **Fase 5 — serie storiche:** servono più settimane (oggi 1 sola) per il grafico "ultimi 30 giorni".
 
-## Avvio (target, non ancora implementato)
+## Avvio frontend
+
+```bash
+npm install
+npm run dev
+```
+
+La dashboard sarà disponibile all'URL indicato da Vite, normalmente `http://localhost:5173`.
+
+Per creare la build di produzione:
+
+```bash
+npm run build
+```
+
+## Avvio backend (target)
 
 ```bash
 # 1. Configura Supabase (una volta)

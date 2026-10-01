@@ -1,54 +1,13 @@
 <!doctype html>
 <html lang="it">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ReCUPera | Dashboard regionale</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="index.html"><span class="brand-mark">↗</span><span>reCUPera</span></a>
-      <p class="eyebrow">Centro operativo</p>
-      <nav>
-        <a class="nav-item active" href="index.html"><span>◒</span> Panoramica</a>
-        <a class="nav-item" href="#territorio"><span>⌖</span> Territorio</a>
-        <a class="nav-item" href="#simulatore"><span>↝</span> Simulatore</a>
-        <a class="nav-item" href="../reCUPera-prenotazioni/index.html"><span>□</span> Prenotazioni</a>
-      </nav>
-      <div class="sidebar-bottom">
-        <div class="status-dot"><i></i> Dati aggiornati ora</div>
-        <p class="sidebar-note">Monitoraggio tempi di attesa<br><strong>Regione Puglia</strong></p>
-        <p class="data-note">Dataset sintetico · demo</p>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <header class="topbar"><div><p class="breadcrumb">Regione Puglia <span>/</span> Centro operativo</p><h1>Buongiorno, operatore</h1></div><div class="top-actions"><span class="live-label"><i></i> Live</span><button class="icon-button" aria-label="Notifiche">♧<b>3</b></button><div class="avatar">MR</div></div></header>
-
-      <section class="intro-row"><div><p class="section-kicker">Giovedì 01 ottobre 2026</p><h2>La rete sta recuperando tempo.</h2><p class="subline">Ogni slot riaperto è una visita anticipata per un cittadino.</p></div><button class="outline-button" id="refreshButton">↻ <span>Aggiorna dati</span></button></section>
-
-      <section class="metric-grid" aria-label="Indicatori principali">
-        <article class="metric-card emphasis"><div class="metric-head"><span>Slot recuperati</span><span class="trend positive">+12,4%</span></div><strong>284</strong><p>rispetto alla scorsa settimana</p><div class="sparkline"><i style="height:38%"></i><i style="height:52%"></i><i style="height:42%"></i><i style="height:65%"></i><i style="height:54%"></i><i style="height:76%"></i><i style="height:92%"></i></div></article>
-        <article class="metric-card"><div class="metric-head"><span>Giorni restituiti</span><span class="trend positive">+8,1%</span></div><strong>1.426</strong><p>media per paziente <b>5,0 giorni</b></p><div class="line-chart"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></article>
-        <article class="metric-card"><div class="metric-head"><span>Tasso di conferma</span><span class="trend neutral">stabile</span></div><strong>78,6<span class="small-unit">%</span></strong><p>su 361 proposte inviate</p><div class="progress"><i style="width:78.6%"></i></div></article>
-        <article class="metric-card"><div class="metric-head"><span>Zone sotto pressione</span><span class="trend warning">attenzione</span></div><strong>3</strong><p>oltre il 20% di capacità inutilizzata</p><div class="mini-tags"><span>BA</span><span>LE</span><span>TA</span></div></article>
-      </section>
-
-      <section class="content-grid">
-        <article class="panel chart-panel"><div class="panel-heading"><div><p class="section-kicker">Ultimi 30 giorni</p><h3>Slot recuperati dalla rete</h3></div><select aria-label="Intervallo grafico"><option>Ultimi 30 giorni</option><option>Ultimi 7 giorni</option></select></div><div class="legend"><span><i class="legend-green"></i>Recuperati</span><span><i class="legend-gray"></i>Slot disponibili</span></div><div class="big-chart"><div class="y-axis"><span>160</span><span>120</span><span>80</span><span>40</span><span>0</span></div><div class="chart-area"><div class="grid-lines"><i></i><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 650 180" preserveAspectRatio="none" aria-label="Grafico slot recuperati"><path class="area" d="M0 146 C40 138 53 152 78 127 S120 115 145 122 S185 108 205 112 S240 84 270 102 S305 90 330 82 S360 105 385 73 S420 80 440 63 S472 83 495 54 S530 69 552 38 S600 54 650 20 V180 H0Z"/><path class="curve" d="M0 146 C40 138 53 152 78 127 S120 115 145 122 S185 108 205 112 S240 84 270 102 S305 90 330 82 S360 105 385 73 S420 80 440 63 S472 83 495 54 S530 69 552 38 S600 54 650 20"/></svg><div class="x-axis"><span>02 set</span><span>08 set</span><span>14 set</span><span>20 set</span><span>26 set</span><span>01 ott</span></div></div></div></article>
-        <article class="panel queue-panel"><div class="panel-heading"><div><p class="section-kicker">Azioni recenti</p><h3>Ultime riassegnazioni</h3></div><button class="text-button">Vedi tutte →</button></div><div class="queue-list"><div class="queue-item"><span class="service-icon cardio">✚</span><div><strong>Ecocardiogramma</strong><small>Ospedale San Paolo · Bari</small></div><span class="queue-time">oggi, 11:42</span><span class="queue-state success">Confermato</span></div><div class="queue-item"><span class="service-icon eye">◉</span><div><strong>Visita oculistica</strong><small>Policlinico · Foggia</small></div><span class="queue-time">oggi, 11:18</span><span class="queue-state pending">In attesa</span></div><div class="queue-item"><span class="service-icon bone">◇</span><div><strong>Risonanza magnetica</strong><small>Vito Fazzi · Lecce</small></div><span class="queue-time">oggi, 10:56</span><span class="queue-state success">Confermato</span></div><div class="queue-item"><span class="service-icon lungs">⊕</span><div><strong>Visita pneumologica</strong><small>SS. Annunziata · Taranto</small></div><span class="queue-time">oggi, 10:31</span><span class="queue-state expired">Scaduto</span></div></div></article>
-      </section>
-
-      <section class="bottom-grid" id="territorio"><article class="panel territory-panel"><div class="panel-heading"><div><p class="section-kicker">Mappa delle criticità</p><h3>La domanda dove serve</h3></div><button class="text-button">Esporta CSV ↓</button></div><div class="territory-layout"><div class="puglia-map" aria-label="Mappa stilizzata della Puglia"><span class="map-shape"></span><i class="pin p1"></i><i class="pin p2"></i><i class="pin p3"></i><i class="pin p4"></i><i class="pin p5"></i><span class="map-label l1">FG</span><span class="map-label l2">BA</span><span class="map-label l3">BR</span><span class="map-label l4">LE</span><span class="map-label l5">TA</span></div><div class="territory-table"><div class="table-row table-header"><span>Zona / ASL</span><span>Attesa media</span><span>Utilizzo</span></div><div class="table-row"><span><b>BA</b> Bari</span><span>42 gg</span><span><em class="bar"><i style="width:61%"></i></em> 61%</span></div><div class="table-row"><span><b>LE</b> Lecce</span><span>38 gg</span><span><em class="bar"><i style="width:68%"></i></em> 68%</span></div><div class="table-row"><span><b>FG</b> Foggia</span><span>31 gg</span><span><em class="bar ok"><i style="width:82%"></i></em> 82%</span></div><div class="table-row"><span><b>TA</b> Taranto</span><span>29 gg</span><span><em class="bar ok"><i style="width:86%"></i></em> 86%</span></div></div></div></article>
-        <article class="panel simulator-panel" id="simulatore"><div class="panel-heading"><div><p class="section-kicker">Proiezione</p><h3>Sposta risorse</h3></div><span class="simulator-badge">Scenario 01</span></div><p class="simulator-copy">Sposta ore di specialista da una zona con capacità inutilizzata verso una zona in sofferenza.</p><label class="field-label" for="from">Da</label><select id="from"><option>BA · Bari (61% utilizzo)</option><option>LE · Lecce (68% utilizzo)</option></select><label class="field-label" for="to">A</label><select id="to"><option>FG · Foggia (42 gg attesa)</option><option>BA · Bari (42 gg attesa)</option></select><div class="range-label"><span>Ore settimanali</span><strong id="hoursValue">8 ore</strong></div><input id="hours" type="range" min="2" max="20" value="8"><div class="simulation-result"><span>Nuova attesa stimata</span><strong id="waitValue">35 giorni <small>↓ 7 giorni</small></strong></div><button class="primary-button" id="simulateButton">Applica scenario <span>→</span></button></article></section>
-      <footer><span>ReCUPera · sistema di ottimizzazione delle liste d'attesa</span><span>Fonte: Monitoraggio tempi di attesa · Regione Puglia</span></footer>
-    </main>
-  </div>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1b2c25" />
+    <title>ReCUPera | Dashboard regionale</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
