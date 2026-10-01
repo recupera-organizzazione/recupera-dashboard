@@ -1,14 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getKpi } from '../lib/api.js';
 
-// Hook Parte 1: carica KPI reali da GET /dashboard/kpi
-// Backend ritorna envelope { data: {...} } con forma canonica store.js:
-// { prenotazioni, da_garantire, fuori_tmax_tot, settimana, cancellazioni }.
-// Qui si normalizza in { totale_* } come atteso dai componenti, senza
-// inventare nulla: se API assente, fallback demo etichettato.
-// - loading / error / empty espliciti (obbligo AGENTS.md §5.3)
-// - nessun numero inventato: se API assente, fallback demo etichettato
-// Totali attesi da CSV (verifica Fase 1): BA 19.370, FG 10.042, LE 7.754, TA 7.113, BT 5.607, BR 4.686
+// Hook KPI: ritorni { data, loading, error, fuoriTmaxPct, isDemo } con cache TanStack Query.
+// MetricGrid.jsx non cambia interfaccia.
+// Backend ritorna envelope { data: {...} } con forma canonica store.js
+// ({ prenotazioni, da_garantire, fuori_tmax_tot, settimana, cancellazioni }):
+// qui si normalizza in { totale_* } come atteso dai componenti, senza inventare nulla.
+// Totali attesi CSV: BA 19.370, FG 10.042, LE 7.754, TA 7.113, BT 5.607, BR 4.686
 
 const DEMO_FALLBACK = {
   totale_prenotazioni: null,
@@ -18,55 +16,50 @@ const DEMO_FALLBACK = {
 };
 
 export function useKpi(settimana) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const query = useQuery({
+    queryKey: ['kpi', settimana || 'default'],
+    queryFn: () => getKpi(settimana),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+  // Unwrap envelope { data } del backend + normalizza nomi canonici in totale_*.
+  const body = query.data;
+  const envelope = body?.data ?? body;
+  const normalized = envelope
+    ? {
+        totale_prenotazioni: envelope.prenotazioni,
+        totale_da_garantire: envelope.da_garantire,
+        totale_fuori_tmax: envelope.fuori_tmax_tot,
+        settimana: envelope.settimana,
+        cancellazioni: envelope.cancellazioni ?? null,
+      }
+    : null;
 
-    getKpi(settimana)
-      .then((body) => {
-        if (cancelled) return;
-        // Unwrap envelope { data } del backend + normalizza nomi canonici
-        // (prenotazioni/da_garantire/fuori_tmax_tot) in totale_* dei componenti.
-        const raw = body?.data ?? body;
-        const kpi = raw
-          ? {
-              totale_prenotazioni: raw.prenotazioni,
-              totale_da_garantire: raw.da_garantire,
-              totale_fuori_tmax: raw.fuori_tmax_tot,
-              settimana: raw.settimana,
-              cancellazioni: raw.cancellazioni ?? null,
-            }
-          : null;
-        // empty: API ok ma nessun dato (es. settimana senza rilevazioni)
-        if (!kpi || (kpi.totale_prenotazioni === 0 && kpi.totale_da_garantire === 0)) {
-          setData({ ...DEMO_FALLBACK, _empty: true });
-        } else {
-          setData({ ...kpi, _demo: false });
+  const isEmpty =
+    !!normalized && (normalized.totale_prenotazioni === 0 && normalized.totale_da_garantire === 0);
+
+  // Fallback demo etichettato: non inventa numeri, MetricGrid mostra error + demo esistenti
+  const data = normalized
+    ? { ...normalized, _demo: false, ...(isEmpty ? { _empty: true } : {}) }
+    : query.isError
+      ? {
+          ...DEMO_FALLBACK,
+          _error: query.error?.message,
         }
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        // Fallback demo etichettato, non blocca la UI esistente
-        setData({ ...DEMO_FALLBACK, _error: err.message });
-        setError(err.message);
-        setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [settimana]);
+      : null;
 
   const fuoriTmaxPct =
     data && data.totale_da_garantire > 0 && data.totale_fuori_tmax != null
       ? (data.totale_fuori_tmax / data.totale_da_garantire) * 100
       : null;
 
-  return { data, loading, error, fuoriTmaxPct, isDemo: !data || data._demo === true };
+  return {
+    data,
+    loading: query.isLoading,
+    error: query.isError ? query.error?.message || 'Errore sconosciuto' : null,
+    fuoriTmaxPct,
+    isDemo: !data || data._demo === true,
+    // esposti per debug / future parti (grafico, territorio)
+    isEmpty,
+    refetch: query.refetch,
+  };
 }
