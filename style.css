@@ -173,3 +173,12 @@ footer{display:block;line-height:1.7}
 .login-submit:disabled{opacity:.6;cursor:wait}
 .login-error{margin:0 0 12px;padding:10px 12px;font-size:12px;color:#8a4a3a;background:#fdf3ef;border:1px solid #e8c4b8;border-radius:6px}
 .login-hint{margin:14px 0 0;font-size:11px;line-height:1.5;color:var(--muted)}
+/* Dati reali (Fase 2): valori live + stati loading/error/empty dei pannelli */
+.serie-reale{display:flex;flex-direction:column;gap:6px;padding:26px 6px}
+.serie-reale strong{font-size:34px;color:var(--green-dark)}
+.serie-reale span{font-size:12px;color:var(--ink)}
+.serie-reale small{font-size:11px;line-height:1.5;color:var(--muted)}
+.panel-note{font-size:11px;line-height:1.5;color:var(--muted)}
+.panel-error{font-size:12px;color:#8a4a3a;background:#fdf3ef;border:1px solid #e8c4b8;border-radius:6px;padding:10px 12px}
+.map-note{margin-top:10px}
+.sim-hint{margin-top:10px}

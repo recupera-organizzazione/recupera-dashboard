@@ -44,8 +44,43 @@ function formatIT(n) {
   return Number(n).toLocaleString('it-IT');
 }
 
+// Card con dati reali quando l'API risponde (cancellazioni dal gestionale +
+// zone sotto pressione dal monitoraggio). Offline: DEMO_METRICS storici.
+// "Giorni restituiti" resta demo: nessun dato reale disponibile (AGENTS.md §3).
+function realMetrics(data) {
+  const canc = data.cancellazioni;
+  const live = canc?.disponibile === true;
+  const conferma = live ? (1 - canc.tasso_cancellazione_pct) * 100 : null;
+  return [
+    {
+      label: 'Slot recuperati',
+      value: live ? formatIT(canc.slot_recuperati_riallocati) : '—',
+      trend: live ? 'reale' : 'demo',
+      note: live ? `disdette riassegnate · ${canc.periodo.da}–${canc.periodo.a}` : 'gestionale non collegato',
+      type: 'emphasis',
+    },
+    DEMO_METRICS[1],
+    {
+      label: 'Tasso di conferma',
+      value: live ? conferma.toFixed(1).replace('.', ',') : '—',
+      unit: live ? '%' : '',
+      trend: live ? 'reale' : 'demo',
+      note: live ? `quota non disdetta · ${canc.periodo.da}–${canc.periodo.a}` : 'gestionale non collegato',
+      type: 'confirmation',
+    },
+    {
+      label: 'Zone sotto pressione',
+      value: formatIT(data.zone_sotto_pressione_stimate),
+      trend: 'reale',
+      note: 'oltre il 50% oltre i tempi massimi',
+      type: 'pressure',
+    },
+  ];
+}
+
 export default function MetricGrid({ settimana }) {
   const { data, loading, error, fuoriTmaxPct, isDemo } = useKpi(settimana);
+  const metrics = !isDemo && data && !data._empty ? realMetrics(data) : DEMO_METRICS;
 
   return (
     <>
@@ -62,7 +97,7 @@ export default function MetricGrid({ settimana }) {
         )}
         {!loading && error && (
           <div className="kpi-real error" role="alert">
-            API non raggiungibile ({error}) — mostro demo. Avvia backend: `npm --prefix backend run dev` + verifica `curl localhost:3001/api/v1/dashboard/kpi`.
+            Servizio dati non raggiungibile ({error}) — mostro i valori dimostrativi. Avvia il backend: `npm --prefix backend run dev` e verifica `curl localhost:3001/api/v1/dashboard/kpi`.
           </div>
         )}
         {!loading && !error && data && !data._empty && (
@@ -79,12 +114,12 @@ export default function MetricGrid({ settimana }) {
                 <small> ({fuoriTmaxPct.toFixed(1).replace('.', ',')} % su da garantire)</small>
               )}
             </span>
-            <small className="kpi-source">Fonte: GET /dashboard/kpi · settimana {settimana || '07-11 OTTOBRE 2024'}</small>
+            <small className="kpi-source">Fonte: monitoraggio tempi di attesa · settimana {settimana || '07-11 OTTOBRE 2024'}</small>
           </div>
         )}
         {!loading && !error && data?._empty && (
           <div className="kpi-real empty" role="status">
-            Nessun dato per questa settimana (dati insufficienti — il CSV copre solo 07-11 OTT 2024).
+            Nessun dato per questa settimana — i dati disponibili coprono solo la settimana 07–11 OTT 2024.
           </div>
         )}
         {!loading && isDemo && !error && (
@@ -92,8 +127,8 @@ export default function MetricGrid({ settimana }) {
         )}
       </section>
 
-      <section className="metric-grid" aria-label="Indicatori principali (demo)">
-        {DEMO_METRICS.map((metric) => (
+      <section className="metric-grid" aria-label="Indicatori principali">
+        {metrics.map((metric) => (
           <MetricCard metric={metric} key={metric.label} />
         ))}
       </section>
