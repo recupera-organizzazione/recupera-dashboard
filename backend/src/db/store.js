@@ -214,20 +214,12 @@ export async function getRiassegnazioni(limit = 10) {
     .select('appointment_id, specialty_id, facility_id, starts_at, cancelled_at, reallocated')
     .order('cancelled_at', { ascending: false }).limit(limit);
   if (error) throw error;
-  const ids = [...new Set(data.map((e) => Number(e.specialty_id)).filter(Number.isInteger))];
-  const descr = new Map();
-  if (ids.length) {
-    const { data: prest, error: errP } = await supabase.from('prestazione')
-      .select('id_prestazione, descrizione').in('id_prestazione', ids);
-    if (errP) throw errP;
-    prest.forEach((p) => descr.set(String(p.id_prestazione), p.descrizione));
-  }
   return {
     rows: data.map((e) => ({
       id: e.appointment_id,
-      prestazione: descr.get(e.specialty_id) || e.specialty_id,
+      // Nel gestionale specialty_id è la branca ("cardiologia") e facility_id la sede ("Ospedale ... - Comune").
+      prestazione: e.specialty_id,
       struttura: e.facility_id,
-      sigla: String(e.facility_id).split('-')[0],
       slot_inizio: e.starts_at,
       disdetta_il: e.cancelled_at,
       stato: e.reallocated ? 'riassegnato' : 'slot_libero',
