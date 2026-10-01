@@ -69,6 +69,7 @@ Tabelle create con migration Supabase CLI (`supabase/migrations/`):
 | GET | `/api/prestazioni?q=` | filtri |
 | GET | `/api/dashboard/kpi?settimana=` | 4 metric-card (oggi hardcoded) |
 | GET | `/api/dashboard/serie?giorni=30&asl=&prestazione=` | chart-panel (oggi SVG finto) |
+| GET | `/api/dashboard/cancellazioni?da=&a=&specialty_id=&facility_id=` | statistiche disdette reali dal gestionale (default ultimi 30gg; `disponibile:false` senza Supabase) |
 | GET | `/api/territorio/hotspot?settimana=` | territory-panel tabella + mappa |
 | GET | `/api/riassegnazioni?limit=10` | queue-panel (mock in DB finché non c'è gestionale CUP) |
 | POST | `/api/simulatori/proiezione {da_asl, a_asl, ore}` | simulator-panel (oggi formula fake `42-value*0.85`) |

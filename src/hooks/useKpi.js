@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { getKpi } from '../lib/api.js';
 
 // Hook Parte 1: carica KPI reali da GET /dashboard/kpi
-// Backend ritorna: { totale_prenotazioni, totale_da_garantire, totale_fuori_tmax }
+// Backend ritorna envelope { data: {...} } con forma canonica store.js:
+// { prenotazioni, da_garantire, fuori_tmax_tot, settimana, cancellazioni }.
+// Qui si normalizza in { totale_* } come atteso dai componenti, senza
+// inventare nulla: se API assente, fallback demo etichettato.
 // - loading / error / empty espliciti (obbligo AGENTS.md §5.3)
 // - nessun numero inventato: se API assente, fallback demo etichettato
 // Totali attesi da CSV (verifica Fase 1): BA 19.370, FG 10.042, LE 7.754, TA 7.113, BT 5.607, BR 4.686
@@ -25,8 +28,20 @@ export function useKpi(settimana) {
     setError(null);
 
     getKpi(settimana)
-      .then((kpi) => {
+      .then((body) => {
         if (cancelled) return;
+        // Unwrap envelope { data } del backend + normalizza nomi canonici
+        // (prenotazioni/da_garantire/fuori_tmax_tot) in totale_* dei componenti.
+        const raw = body?.data ?? body;
+        const kpi = raw
+          ? {
+              totale_prenotazioni: raw.prenotazioni,
+              totale_da_garantire: raw.da_garantire,
+              totale_fuori_tmax: raw.fuori_tmax_tot,
+              settimana: raw.settimana,
+              cancellazioni: raw.cancellazioni ?? null,
+            }
+          : null;
         // empty: API ok ma nessun dato (es. settimana senza rilevazioni)
         if (!kpi || (kpi.totale_prenotazioni === 0 && kpi.totale_da_garantire === 0)) {
           setData({ ...DEMO_FALLBACK, _empty: true });

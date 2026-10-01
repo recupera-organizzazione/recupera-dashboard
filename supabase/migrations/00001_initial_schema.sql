@@ -1,10 +1,11 @@
 -- ============================================================
 -- ReCUPera - Dashboard Regionale CUP
 -- Migrazione 00001: Schema iniziale
+-- NOTA dataset (cfr. AGENTS.md §3): il CSV è cp1252/latin1, una sola
+-- settimana '07-11 OTTOBRE 2024' (TEXT, non numero), 6 righe senza
+-- ID_PRESTAZIONE/COD_PRESTAZIONE (EMG) → id_prestazione NULL + match
+-- per descrizione; celle vuote "" → 0/NULL (mai NOT NULL su codice).
 -- ============================================================
-
--- Estensioni necessarie
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ------------------------------------------------------------
 -- Tabella: asl
@@ -29,22 +30,31 @@ ON CONFLICT (id) DO NOTHING;
 -- ------------------------------------------------------------
 -- Tabella: prestazione
 -- ------------------------------------------------------------
+-- id = surrogato SERIAL: l'ID ministeriale NON è PK perché il CSV contiene
+-- 6 righe con ID_PRESTAZIONE vuoto (ELETTROMIOGRAFIA SEMPLICE [EMG]…).
+-- codice = TEXT NULL (valori tipo '88.01.1'; celle vuote → NULL).
 CREATE TABLE IF NOT EXISTS public.prestazione (
     id              SERIAL PRIMARY KEY,
-    codice          VARCHAR(50) NOT NULL UNIQUE,
-    descrizione     TEXT NOT NULL,
+    id_prestazione  INT NULL,
+    codice          TEXT NULL,
+    descrizione     TEXT NOT NULL UNIQUE,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+-- Unicità dell'ID ministeriale solo quando presente (NULL esclusi).
+CREATE UNIQUE INDEX IF NOT EXISTS prestazione_id_prestazione_uidx
+    ON public.prestazione (id_prestazione) WHERE id_prestazione IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- Tabella: rilevazione_settimanale
 -- ------------------------------------------------------------
+-- settimana = TEXT: il CSV riporta '07-11 OTTOBRE 2024' (range con mese),
+-- non un numero 1..53. Un CHECK INTEGER rigetterebbe ogni riga.
 CREATE TABLE IF NOT EXISTS public.rilevazione_settimanale (
     id                  BIGSERIAL PRIMARY KEY,
     asl_id              CHAR(6) NOT NULL REFERENCES public.asl(id) ON DELETE CASCADE,
     prestazione_id      INTEGER NOT NULL REFERENCES public.prestazione(id) ON DELETE CASCADE,
     anno                INTEGER NOT NULL,
-    settimana           INTEGER NOT NULL CHECK (settimana BETWEEN 1 AND 53),
+    settimana           TEXT NOT NULL,
     prenotazioni        INTEGER DEFAULT 0,
     da_garantire        INTEGER DEFAULT 0,
     b_tot               INTEGER DEFAULT 0,
@@ -67,15 +77,31 @@ CREATE INDEX IF NOT EXISTS idx_rilevazione_anno_settimana ON public.rilevazione_
 -- ------------------------------------------------------------
 -- Vista: kpi_territorio
 -- ------------------------------------------------------------
+-- Nomi colonna canonici = identici al fallback CSV del backend (store.js),
+-- così l'API restituisce la stessa forma con o senza Supabase.
+-- fuori_tmax_* = proxy di pressione (classi B/D/P oltre tempo max), NON giorni.
+-- attesa_stimata_gg = EURISTICA documentata (non dato reale):
+--   ROUND(7 + 40 * fuori_tmax_tot / NULLIF(da_garantire, 0))
 CREATE OR REPLACE VIEW public.kpi_territorio AS
 SELECT
     a.id AS asl_id,
-    a.sigla AS asl_sigla,
-    a.nome AS asl_nome,
-    r.anno,
-    r.settimana,
-    SUM(r.prenotazioni) AS totale_prenotazioni,
-    SUM(r.da_garantire) AS totale_da_garantire,
+    a.sigla AS sigla,
+    a.nome AS nome,
+    r.anno AS anno,
+    r.settimana AS settimana,
+    SUM(r.prenotazioni)::INT AS prenotazioni,
+    SUM(r.da_garantire)::INT AS da_garantire,
+    (SUM(r.b_fuori_tmax + r.d_fuori_tmax + r.p_fuori_tmax))::INT AS fuori_tmax_tot,
+    CASE
+        WHEN SUM(r.da_garantire) > 0
+        THEN (SUM(r.b_fuori_tmax + r.d_fuori_tmax + r.p_fuori_tmax)::FLOAT / SUM(r.da_garantire)::FLOAT)
+        ELSE 0
+    END AS fuori_tmax_pct,
+    ROUND(7 + 40 * CASE
+        WHEN SUM(r.da_garantire) > 0
+        THEN (SUM(r.b_fuori_tmax + r.d_fuori_tmax + r.p_fuori_tmax)::FLOAT / SUM(r.da_garantire)::FLOAT)
+        ELSE 0
+    END)::INT AS attesa_stimata_gg,
     SUM(r.b_tot) AS totale_b_tot,
     SUM(r.b_fuori_tmax) AS totale_b_fuori_tmax,
     SUM(r.d_tot) AS totale_d_tot,
@@ -102,6 +128,26 @@ JOIN public.asl a ON r.asl_id = a.id
 GROUP BY a.id, a.sigla, a.nome, r.anno, r.settimana;
 
 -- ------------------------------------------------------------
+-- Vista: statistiche_cancellazioni (gestionale prenotazioni)
+-- ------------------------------------------------------------
+-- Aggrega APPOINTMENTS (dati reali del gestionale: ~1,6k prenotazioni/giorno
+-- osservate) per giorno/specialty/facility. La dashboard la usa per le
+-- statistiche di cancellazione (tasso disdette, serie giornaliera) senza
+-- mai leggere patient_id/cancelled_by (colonne escluse dalla vista).
+-- cancellation_events (slot recuperati/riallocati) si legge a parte: è
+-- popolata dal gestionale solo quando una disdetta viene riassegnata.
+CREATE OR REPLACE VIEW public.statistiche_cancellazioni AS
+SELECT
+    a.created_at::date AS giorno,
+    a.specialty_id AS specialty_id,
+    a.facility_id AS facility_id,
+    COUNT(*)::INT AS prenotazioni,
+    COUNT(*) FILTER (WHERE a.status = 'cancelled')::INT AS cancellate,
+    COUNT(*) FILTER (WHERE a.source = 'waitlist_reallocation')::INT AS da_riassegnazione
+FROM public.appointments a
+GROUP BY 1, 2, 3;
+
+-- ------------------------------------------------------------
 -- Row Level Security (RLS)
 -- ------------------------------------------------------------
 
@@ -110,7 +156,14 @@ ALTER TABLE public.asl ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.prestazione ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rilevazione_settimanale ENABLE ROW LEVEL SECURITY;
 
--- Policy: lettura pubblica/anon per tabelle
+-- Policy: lettura pubblica/anon per tabelle (DROP prima di CREATE = rerun sicuro)
+DROP POLICY IF EXISTS "Lettura pubblica ASL" ON public.asl;
+DROP POLICY IF EXISTS "Lettura pubblica Prestazioni" ON public.prestazione;
+DROP POLICY IF EXISTS "Lettura pubblica Rilevazioni" ON public.rilevazione_settimanale;
+DROP POLICY IF EXISTS "Scrittura service_role ASL" ON public.asl;
+DROP POLICY IF EXISTS "Scrittura service_role Prestazioni" ON public.prestazione;
+DROP POLICY IF EXISTS "Scrittura service_role Rilevazioni" ON public.rilevazione_settimanale;
+
 CREATE POLICY "Lettura pubblica ASL"
     ON public.asl FOR SELECT
     TO anon, authenticated
@@ -156,6 +209,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_rilevazione_updated_at ON public.rilevazione_settimanale;
 CREATE TRIGGER trigger_rilevazione_updated_at
     BEFORE UPDATE ON public.rilevazione_settimanale
     FOR EACH ROW
