@@ -51,12 +51,12 @@ export default function Simulator() {
           <strong>{esito.nuova_attesa_stimata_gg} giorni <small>↓ {esito.riduzione_stimata_gg} giorni</small></strong>
         </div>
       )}
-      {proiezione.isError && <p className="data-note" role="alert">{proiezione.error.message}</p>}
+      {proiezione.isError && <p className="panel-error" role="alert">{proiezione.error.message}</p>}
       <button className="primary-button" type="button" disabled={!da || !a || proiezione.isPending}
         onClick={() => proiezione.mutate({ da_asl: da, a_asl: a, ore })}>
         {proiezione.isPending ? 'Calcolo…' : 'Calcola scenario'} <span>→</span>
       </button>
-      {esito && <p className="data-note">{esito.nota}</p>}
+      {esito && <p className="panel-note">{esito.nota}</p>}
     </article>
   );
 }

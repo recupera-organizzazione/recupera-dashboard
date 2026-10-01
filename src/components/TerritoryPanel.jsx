@@ -34,8 +34,8 @@ export default function TerritoryPanel() {
             <span>Attesa stimata</span>
             <span>Oltre tempo max</span>
           </div>
-          {isLoading && <p className="data-note" role="status">Caricamento…</p>}
-          {isError && <p className="data-note" role="alert">Territorio non disponibile: {error.message}</p>}
+          {isLoading && <p className="panel-note" role="status">Caricamento…</p>}
+          {isError && <p className="panel-error" role="alert">Territorio non disponibile: {error.message}</p>}
           {righe.map((r) => (
             <div className="table-row" key={r.asl_id}>
               <span><b>{r.sigla}</b> {r.nome.replace(/^ASL /, '')}</span>

@@ -44,8 +44,8 @@ export default function RecoveryChart() {
         <span><i className="legend-green" />Riassegnati</span>
         <span><i className="legend-gray" />Disdette</span>
       </div>
-      {isLoading && <p className="data-note" role="status">Caricamento…</p>}
-      {isError && <p className="data-note" role="alert">Disdette non disponibili: {error.message}</p>}
+      {isLoading && <p className="panel-note" role="status">Caricamento…</p>}
+      {isError && <p className="panel-error" role="alert">Disdette non disponibili: {error.message}</p>}
       {!isLoading && !isError && (
         <div className="big-chart">
           <div className="y-axis">{tacche.map((t, i) => <span key={i}>{t}</span>)}</div>
@@ -59,7 +59,7 @@ export default function RecoveryChart() {
           </div>
         </div>
       )}
-      {data?.data?.nota && <p className="data-note">{data.data.nota}</p>}
+      {data?.data?.nota && <p className="panel-note">{data.data.nota}</p>}
     </article>
   );
 }

@@ -18,7 +18,7 @@ export default function Topbar({ username, onLogout }) {
       </div>
       <div className="top-actions">
         <span className="live-label">
-          <i /> Live
+          <i /> Demo
         </span>
         <button className="icon-button" type="button" aria-label="Notifiche, 3 non lette">
           ♧<b>3</b>

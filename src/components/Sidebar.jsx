@@ -24,7 +24,7 @@ export default function Sidebar() {
       </nav>
       <div className="sidebar-bottom">
         <div className="status-dot">
-          <i /> Dati aggiornati ora
+          <i /> Dati: settimana 07–11 ott 2024
         </div>
         <p className="sidebar-note">
           Monitoraggio tempi di attesa

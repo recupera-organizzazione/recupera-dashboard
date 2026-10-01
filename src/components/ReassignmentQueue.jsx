@@ -31,9 +31,9 @@ export default function ReassignmentQueue() {
         </div>
       </div>
       <div className="queue-list">
-        {isLoading && <p className="data-note" role="status">Caricamento…</p>}
-        {isError && <p className="data-note" role="alert">Disdette non disponibili: {error.message}</p>}
-        {!isLoading && !isError && righe.length === 0 && <p className="data-note">Nessuna disdetta registrata.</p>}
+        {isLoading && <p className="panel-note" role="status">Caricamento…</p>}
+        {isError && <p className="panel-error" role="alert">Disdette non disponibili: {error.message}</p>}
+        {!isLoading && !isError && righe.length === 0 && <p className="panel-note">Nessuna disdetta registrata.</p>}
         {righe.map((r) => {
           const [simbolo, tipo] = icona(r.prestazione);
           return (
