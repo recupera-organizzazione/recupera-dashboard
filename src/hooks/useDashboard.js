@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   getAsl,
+  getCancellazioni,
   getHotspot,
   getPrestazioni,
   getRiassegnazioni,
@@ -8,8 +9,8 @@ import {
   postProiezione,
 } from '../lib/api.js';
 
-// Hook pronti per Parti 3-6. Tutti con loading/error/empty (obbligo AGENTS.md §5.3).
-// Nessuna UI qui: solo queryKey + fetcher. La UI arriva nelle rispettive parti.
+// Hook dei pannelli. Tutti con loading/error/empty (obbligo AGENTS.md §5.3).
+// Nessuna UI qui: solo queryKey + fetcher; il backend risponde con envelope { data }.
 
 export function useAsl() {
   return useQuery({ queryKey: ['asl'], queryFn: getAsl });
@@ -29,12 +30,17 @@ export function useHotspot(settimana) {
   });
 }
 
-export function useSerie({ giorni = 30, asl = '', prestazione = '' } = {}) {
+export function useSerie({ asl = '', prestazione = '' } = {}) {
   return useQuery({
-    // Nota dataset: 1 sola settimana → la UI (Parte 3) deve mostrare
-    // 1 punto + nota dati insufficienti, mai inventare 30 punti.
-    queryKey: ['serie', giorni, asl, prestazione],
-    queryFn: () => getSerie({ giorni, asl, prestazione }),
+    queryKey: ['serie', asl, prestazione],
+    queryFn: () => getSerie({ asl, prestazione }),
+  });
+}
+
+export function useCancellazioni({ da = '', a = '' } = {}) {
+  return useQuery({
+    queryKey: ['cancellazioni', da, a],
+    queryFn: () => getCancellazioni({ da, a }),
   });
 }
 

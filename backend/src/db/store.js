@@ -1,28 +1,14 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import iconv from 'iconv-lite';
 import { parse } from 'csv-parse/sync';
 import { supabase } from './supabaseClient.js';
 
-// Mapping ASL fisso (Min. Salute/HL7) — non re-derivare (AGENTS.md §3).
-export const ASL_META = {
-  '160106': { sigla: 'BR', nome: 'ASL Brindisi' },
-  '160112': { sigla: 'TA', nome: 'ASL Taranto' },
-  '160113': { sigla: 'BT', nome: 'ASL Barletta-Andria-Trani' },
-  '160114': { sigla: 'BA', nome: 'ASL Bari' },
-  '160115': { sigla: 'FG', nome: 'ASL Foggia' },
-  '160116': { sigla: 'LE', nome: 'ASL Lecce' },
-};
-
-export const SETTIMANA_DEFAULT = '07-11 OTTOBRE 2024';
-
-// attesa_stimata_gg = EURISTICA documentata (non dato reale):
-// base 7gg + 40 * quota oltre TMAX. Cfr. vista kpi_territorio nella migration.
-export function attesaStimata(fuoriTmax, daGarantire) {
-  if (!daGarantire) return 7;
-  return Math.round(7 + 40 * (fuoriTmax / daGarantire));
-}
+// Unica fonte dati: Supabase. Il dataset "Monitoraggio tempi di attesa" arriva in
+// rilevazione_settimanale dalla sync con dati.puglia.it (dataset_fonte = settimane
+// sincronizzate); prenotazioni e disdette dal gestionale (tabelle del team Prenota,
+// popolate dal test-server). Nessun CSV locale letto a runtime.
+//
+// *_TMAX del dataset = prenotazioni ENTRO il tempo massimo (legenda ufficiale):
+// "fuori_tmax" nelle viste = totale della classe - entro TMAX (migrazione 00003).
 
 const toInt = (v) => {
   if (v === null || v === undefined) return 0;
@@ -32,17 +18,7 @@ const toInt = (v) => {
   return Number.isNaN(n) ? 0 : n;
 };
 
-function csvPath() {
-  if (process.env.CSV_PATH) return path.resolve(process.cwd(), process.env.CSV_PATH);
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // backend/src/db → repo/data/…
-  return path.resolve(here, '../../../data/monitoraggio-tempi-di-attesa-07_11-ottobre-2024.csv');
-}
-
-let csvCache = null;
-
-// Decodifica robusta: il CSV originale è cp1252 (byte 0x92 = ’), la copia in
-// data/ è normalizzata UTF-8. Prova UTF-8 stretto, altrimenti win1252 via iconv.
+// Decodifica robusta per i CSV caricati a mano: UTF-8 stretto, altrimenti win1252.
 export function decodeCsvBuffer(buf) {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buf);
@@ -51,156 +27,76 @@ export function decodeCsvBuffer(buf) {
   }
 }
 
-// Legge data/*.csv (UTF-8) o l'originale in radice (cp1252).
-export function loadCsvRows() {
-  if (csvCache) return csvCache;
-  const p = csvPath();
-  const fallbackRoot = path.resolve(process.cwd(), '../monitoraggio-tempi-di-attesa-07_11-ottobre-2024.csv');
-  const file = fs.existsSync(p) ? p : fallbackRoot;
-  const raw = fs.readFileSync(file); // Buffer
-  const text = decodeCsvBuffer(raw);
-  const records = parse(text, { columns: true, skip_empty_lines: true, trim: true });
-  csvCache = records.map((r) => {
-    const bTmax = toInt(r.PRENOTAZIONI_DAGARANTIRE_B_TMAX);
-    const dTmax = toInt(r.PRENOTAZIONI_DAGARANTIRE_D_TMAX);
-    const pTmax = toInt(r.PRENOTAZIONI_DAGARANTIRE_P_TMAX);
-    const daGarantire = toInt(r.PRENOTAZIONI_DAGARANTIRE);
-    return {
-      asl_id: String(r.ASL).trim(),
-      anno: toInt(r.ANNO),
-      settimana: String(r.SETTIMANA_INDICE || '').trim(),
-      id_prestazione: String(r.ID_PRESTAZIONE || '').trim() === '' ? null : toInt(r.ID_PRESTAZIONE),
-      descrizione: String(r.DESC_PRESTAZIONE || '').trim(),
-      codice: String(r.COD_PRESTAZIONE || '').trim() === '' ? null : String(r.COD_PRESTAZIONE).trim(),
-      prenotazioni: toInt(r.PRENOTAZIONI),
-      da_garantire: daGarantire,
-      b_tot: toInt(r.PRENOTAZIONI_DAGARANTIRE_B),
-      b_fuori_tmax: bTmax,
-      d_tot: toInt(r.PRENOTAZIONI_DAGARANTIRE_D),
-      d_fuori_tmax: dTmax,
-      p_tot: toInt(r.PRENOTAZIONI_DAGARANTIRE_P),
-      p_fuori_tmax: pTmax,
-      fuori_tmax_tot: bTmax + dTmax + pTmax,
-    };
-  });
-  return csvCache;
+const normSettimana = (s) => String(s).trim().toUpperCase();
+
+// Settimane del dataset presenti in Supabase, dalla più recente.
+export async function listSettimane() {
+  const { data, error } = await supabase.from('dataset_fonte')
+    .select('settimana, anno, inizio, righe, sincronizzato_at')
+    .order('inizio', { ascending: false, nullsFirst: false });
+  if (error) throw error;
+  return data;
 }
 
-// Aggregazione per ASL (stessa logica della vista kpi_territorio).
-export function aggregateByAsl(rows, settimana) {
-  const filtered = settimana ? rows.filter((r) => r.settimana === settimana) : rows;
-  const map = new Map();
-  for (const r of filtered) {
-    const meta = ASL_META[r.asl_id] || { sigla: r.asl_id, nome: r.asl_id };
-    if (!map.has(r.asl_id)) {
-      map.set(r.asl_id, {
-        asl_id: r.asl_id, sigla: meta.sigla, nome: meta.nome,
-        settimana: settimana || r.settimana, anno: r.anno,
-        prenotazioni: 0, da_garantire: 0, fuori_tmax_tot: 0,
-      });
-    }
-    const a = map.get(r.asl_id);
-    a.prenotazioni += r.prenotazioni;
-    a.da_garantire += r.da_garantire;
-    a.fuori_tmax_tot += r.fuori_tmax_tot;
-  }
-  return [...map.values()].map((a) => {
-    const pct = a.da_garantire ? a.fuori_tmax_tot / a.da_garantire : 0;
-    return { ...a, fuori_tmax_pct: pct, attesa_stimata_gg: attesaStimata(a.fuori_tmax_tot, a.da_garantire) };
-  }).sort((x, y) => y.fuori_tmax_tot - x.fuori_tmax_tot);
-}
-
-// ── Letture: Supabase se configurato, altrimenti fallback CSV ────────────────
-
-async function trySupabase(fn, fallback) {
-  if (!supabase) return fallback();
-  try {
-    return await fn();
-  } catch {
-    return fallback();
-  }
+export async function settimanaCorrente() {
+  const settimane = await listSettimane();
+  if (settimane.length === 0) throw new Error('nessuna settimana del dataset in Supabase (dataset_fonte vuota)');
+  return settimane[0].settimana;
 }
 
 export async function listAsl() {
-  return trySupabase(async () => {
-    const { data, error } = await supabase.from('asl').select('*').order('sigla');
-    if (error) throw error;
-    return { rows: data, fonte: 'supabase' };
-  }, () => {
-    const rows = Object.entries(ASL_META).map(([id, m]) => ({ id, sigla: m.sigla, nome: m.nome }));
-    return { rows, fonte: 'csv' };
-  });
+  const { data, error } = await supabase.from('asl').select('*').order('sigla');
+  if (error) throw error;
+  return { rows: data, fonte: 'supabase' };
 }
 
 export async function listPrestazioni(q) {
-  return trySupabase(async () => {
-    let query = supabase.from('prestazione').select('id, id_prestazione, descrizione, codice').order('descrizione').limit(200);
-    if (q) query = query.ilike('descrizione', `%${q}%`);
-    const { data, error } = await query;
-    if (error) throw error;
-    return { rows: data, fonte: 'supabase' };
-  }, () => {
-    const rows = loadCsvRows();
-    const seen = new Map();
-    for (const r of rows) {
-      if (!seen.has(r.descrizione)) {
-        seen.set(r.descrizione, { id_prestazione: r.id_prestazione, descrizione: r.descrizione, codice: r.codice });
-      }
-    }
-    let out = [...seen.values()];
-    if (q) {
-      const needle = q.toLowerCase();
-      out = out.filter((p) => p.descrizione.toLowerCase().includes(needle));
-    }
-    return { rows: out.slice(0, 200), fonte: 'csv' };
-  });
+  let query = supabase.from('prestazione').select('id, id_prestazione, descrizione, codice').order('descrizione').limit(200);
+  if (q) query = query.ilike('descrizione', `%${q}%`);
+  const { data, error } = await query;
+  if (error) throw error;
+  return { rows: data, fonte: 'supabase' };
 }
 
-export async function getHotspot(settimana = SETTIMANA_DEFAULT) {
-  return trySupabase(async () => {
-    const { data, error } = await supabase.from('kpi_territorio').select('*').eq('settimana', settimana);
-    if (error) throw error;
-    if (!data || data.length === 0) throw new Error('settimana non trovata su Supabase');
-    return { rows: data, fonte: 'supabase', settimana };
-  }, () => {
-    const rows = aggregateByAsl(loadCsvRows(), settimana);
-    return { rows, fonte: 'csv', settimana };
-  });
+// Hotspot per ASL di una settimana (default: la più recente sincronizzata).
+export async function getHotspot(settimana) {
+  const s = settimana ? normSettimana(settimana) : await settimanaCorrente();
+  const { data, error } = await supabase.from('kpi_territorio').select('*')
+    .eq('settimana', s).order('fuori_tmax_pct', { ascending: false });
+  if (error) throw error;
+  return { rows: data, fonte: 'supabase', settimana: s };
 }
 
-export async function getKpi(settimana = SETTIMANA_DEFAULT) {
-  const { rows, fonte } = await getHotspot(settimana);
-  const prenotazioni = rows.reduce((s, r) => s + r.prenotazioni, 0);
-  const daGarantire = rows.reduce((s, r) => s + r.da_garantire, 0);
-  const fuoriTmax = rows.reduce((s, r) => s + r.fuori_tmax_tot, 0);
-  const zonePressione = rows.filter((r) => r.da_garantire > 0 && r.fuori_tmax_tot / r.da_garantire > 0.5).length;
-  // Blocco cancellazioni: dati reali dal gestionale quando Supabase è
-  // configurato (sostituisce i mock "slot recuperati / tasso di conferma").
+export async function getKpi(settimana) {
+  const { rows, fonte, settimana: s } = await getHotspot(settimana);
+  const somma = (k) => rows.reduce((t, r) => t + Number(r[k] || 0), 0);
+  const conClasse = somma('totale_b_tot') + somma('totale_d_tot') + somma('totale_p_tot');
+  const fuoriTmax = somma('fuori_tmax_tot');
+  const zone = rows.filter((r) => r.fuori_tmax_pct > 0.5);
   const canc = await getCancellazioni({});
   return {
-    settimana,
+    settimana: s,
     fonte,
-    prenotazioni,
-    da_garantire: daGarantire,
+    prenotazioni: somma('prenotazioni'),
+    da_garantire: somma('da_garantire'),
     fuori_tmax_tot: fuoriTmax,
-    fuori_tmax_pct: daGarantire ? fuoriTmax / daGarantire : 0,
-    zone_sotto_pressione_stimate: zonePressione,
-    nota: 'fuori_tmax = proxy di pressione (classi B/D/P oltre tempo max); attese in gg solo come attesa_stimata_gg (euristica 7+40*pct)',
-    cancellazioni: canc.disponibile ? {
+    fuori_tmax_pct: conClasse ? fuoriTmax / conClasse : 0,
+    zone_sotto_pressione: zone.map((r) => r.sigla),
+    nota: 'fuori_tmax = prenotazioni B/D/P con appuntamento oltre il tempo massimo della classe; zone sotto pressione = ASL con oltre il 50% fuori tempo massimo',
+    cancellazioni: {
       disponibile: true,
       periodo: canc.periodo,
+      totale_prenotazioni: canc.totale_prenotazioni,
       totale_cancellate: canc.totale_cancellate,
       tasso_cancellazione_pct: canc.tasso_cancellazione_pct,
       slot_recuperati_riallocati: canc.slot_recuperati_riallocati,
-    } : { disponibile: false, nota: canc.nota },
+    },
   };
 }
 
 // Cancellazioni dal gestionale prenotazioni (tabelle appointments /
 // cancellation_events, via vista statistiche_cancellazioni).
-// Dati reali: oggi ~1,6k prenotazioni/giorno e 0 cancellazioni registrate —
-// l'endpoint riporta gli zeri onestamente, non li inventa. Senza Supabase:
-// { disponibile: false } (stato "empty" in UI, mai stima).
+// Gli zeri vengono riportati come tali, mai stimati.
 export async function getCancellazioni({ da, a, specialty_id, facility_id } = {}) {
   const oggiISO = new Date().toISOString().slice(0, 10);
   const aISO = a || oggiISO;
@@ -211,12 +107,6 @@ export async function getCancellazioni({ da, a, specialty_id, facility_id } = {}
   };
   const daISO = da || shiftDays(aISO, -29);
   const periodo = { da: daISO, a: aISO };
-  if (!supabase) {
-    return {
-      disponibile: false, fonte: 'csv', periodo,
-      nota: 'gestionale prenotazioni non collegato (Supabase non configurato): statistiche cancellazioni non disponibili, mai stimate',
-    };
-  }
   let q = supabase.from('statistiche_cancellazioni').select('*')
     .gte('giorno', daISO).lte('giorno', aISO).limit(5000);
   if (specialty_id) q = q.eq('specialty_id', specialty_id);
@@ -264,81 +154,110 @@ export async function getCancellazioni({ da, a, specialty_id, facility_id } = {}
   };
 }
 
-// Serie storica: con 1 sola settimana restituisce 1 punto + nota dati insufficienti. Mai inventare punti.
-export async function getSerie({ settimana = SETTIMANA_DEFAULT, asl, prestazione } = {}) {
-  const rows = loadCsvRows().filter((r) =>
-    (!settimana || r.settimana === settimana) &&
-    (!asl || r.asl_id === asl || (ASL_META[r.asl_id] && ASL_META[r.asl_id].sigla.toLowerCase() === String(asl).toLowerCase())) &&
-    (!prestazione || r.descrizione.toLowerCase().includes(String(prestazione).toLowerCase())),
-  );
-  const byWeek = new Map();
-  for (const r of rows) {
-    byWeek.set(r.settimana, (byWeek.get(r.settimana) || 0) + r.prenotazioni);
+// Serie per settimana del dataset (una per risorsa sincronizzata), dalla più vecchia.
+// asl: id 1601xx o sigla, già validato dalla route (entra in un filtro PostgREST).
+export async function getSerie({ asl, prestazione } = {}) {
+  const settimane = await listSettimane();
+  const inizio = new Map(settimane.map((s) => [s.settimana, s.inizio]));
+  let rows;
+  if (prestazione) {
+    const q = supabase.from('rilevazione_settimanale')
+      .select('settimana, asl_id, prenotazioni, b_tot, b_fuori_tmax, d_tot, d_fuori_tmax, p_tot, p_fuori_tmax, prestazione!inner(descrizione), asl!inner(sigla)')
+      .ilike('prestazione.descrizione', `%${prestazione}%`).limit(5000);
+    const { data, error } = await q;
+    if (error) throw error;
+    const oltre = (tot, entro) => Math.max((tot || 0) - (entro || 0), 0);
+    const perAsl = asl ? data.filter((r) => r.asl_id === asl || r.asl.sigla === asl.toUpperCase()) : data;
+    rows = perAsl.map((r) => ({
+      settimana: r.settimana,
+      prenotazioni: r.prenotazioni || 0,
+      fuori_tmax_tot: oltre(r.b_tot, r.b_fuori_tmax) + oltre(r.d_tot, r.d_fuori_tmax) + oltre(r.p_tot, r.p_fuori_tmax),
+      con_classe: (r.b_tot || 0) + (r.d_tot || 0) + (r.p_tot || 0),
+    }));
+  } else {
+    let q = supabase.from('kpi_territorio').select('settimana, asl_id, sigla, prenotazioni, fuori_tmax_tot, totale_b_tot, totale_d_tot, totale_p_tot');
+    if (asl) q = q.or(`asl_id.eq.${asl},sigla.eq.${asl.toUpperCase()}`);
+    const { data, error } = await q;
+    if (error) throw error;
+    rows = data.map((r) => ({
+      settimana: r.settimana,
+      prenotazioni: r.prenotazioni,
+      fuori_tmax_tot: r.fuori_tmax_tot,
+      con_classe: Number(r.totale_b_tot) + Number(r.totale_d_tot) + Number(r.totale_p_tot),
+    }));
   }
-  const punti = [...byWeek.entries()].map(([s, totale]) => ({ settimana: s, prenotazioni: totale }));
+  const perSettimana = new Map();
+  for (const r of rows) {
+    const p = perSettimana.get(r.settimana) || { settimana: r.settimana, inizio: inizio.get(r.settimana) ?? null, prenotazioni: 0, fuori_tmax_tot: 0, con_classe: 0 };
+    p.prenotazioni += r.prenotazioni;
+    p.fuori_tmax_tot += r.fuori_tmax_tot;
+    p.con_classe += r.con_classe;
+    perSettimana.set(r.settimana, p);
+  }
+  const punti = [...perSettimana.values()]
+    .sort((a, b) => String(a.inizio).localeCompare(String(b.inizio)))
+    .map(({ con_classe, ...p }) => ({ ...p, fuori_tmax_pct: con_classe ? p.fuori_tmax_tot / con_classe : 0 }));
   return {
     punti,
-    nota: 'dati insufficienti: una sola settimana disponibile (07-11 OTTOBRE 2024), trend 30gg non producibile',
-    fonte: supabase ? 'supabase+csv' : 'csv',
+    nota: punti.length < 2
+      ? 'dati insufficienti: una sola settimana sincronizzata dal dataset regionale'
+      : `${punti.length} settimane di monitoraggio (dataset Regione Puglia)`,
+    fonte: 'supabase',
   };
 }
 
-// Riassegnazioni: nessun gestionale CUP reale → opportunità derivate dal proxy
-// fuori_tmax (top asl×prestazione per quota oltre TMAX), marcate demo.
+// Ultime disdette registrate dal gestionale (cancellation_events) e se lo slot è stato riassegnato.
 export async function getRiassegnazioni(limit = 10) {
-  const rows = loadCsvRows();
-  const byKey = new Map();
-  for (const r of rows) {
-    const k = `${r.asl_id}|${r.descrizione}`;
-    if (!byKey.has(k)) byKey.set(k, { asl_id: r.asl_id, prestazione: r.descrizione, fuori_tmax_tot: 0, prenotazioni: 0 });
-    const e = byKey.get(k);
-    e.fuori_tmax_tot += r.fuori_tmax_tot;
-    e.prenotazioni += r.prenotazioni;
+  const { data, error } = await supabase.from('cancellation_events')
+    .select('appointment_id, specialty_id, facility_id, starts_at, cancelled_at, reallocated')
+    .order('cancelled_at', { ascending: false }).limit(limit);
+  if (error) throw error;
+  const ids = [...new Set(data.map((e) => Number(e.specialty_id)).filter(Number.isInteger))];
+  const descr = new Map();
+  if (ids.length) {
+    const { data: prest, error: errP } = await supabase.from('prestazione')
+      .select('id_prestazione, descrizione').in('id_prestazione', ids);
+    if (errP) throw errP;
+    prest.forEach((p) => descr.set(String(p.id_prestazione), p.descrizione));
   }
-  const top = [...byKey.values()].sort((a, b) => b.fuori_tmax_tot - a.fuori_tmax_tot).slice(0, limit)
-    .map((e, i) => ({
-      id: i + 1,
-      ...e,
-      sigla: (ASL_META[e.asl_id] || {}).sigla || e.asl_id,
-      stato: 'demo',
-      fonte: 'proxy_fuori_tmax',
-    }));
-  return { rows: top, nota: 'demo: nessun gestionale CUP collegato; ordinamento per quota oltre TMAX (proxy di criticità)', fonte: 'csv' };
+  return {
+    rows: data.map((e) => ({
+      id: e.appointment_id,
+      prestazione: descr.get(e.specialty_id) || e.specialty_id,
+      struttura: e.facility_id,
+      sigla: String(e.facility_id).split('-')[0],
+      slot_inizio: e.starts_at,
+      disdetta_il: e.cancelled_at,
+      stato: e.reallocated ? 'riassegnato' : 'slot_libero',
+    })),
+    nota: 'disdette reali dal gestionale (cancellation_events); riassegnato = slot dato a un paziente in lista d\'attesa',
+    fonte: 'supabase',
+  };
 }
 
 // Simulatore: euristica demo — riduzione = ore * 0.85 (ex formula app.js), applicata
 // all'attesa stimata della ASL destinazione. Documentata, non dato reale.
 export async function simulate({ da_asl, a_asl, ore }) {
-  const norm = (v) => {
+  const { rows, settimana } = await getHotspot();
+  const trova = (v) => {
     const s = String(v).trim().toUpperCase();
-    for (const [id, m] of Object.entries(ASL_META)) {
-      if (id === s || m.sigla === s) return { id, ...m };
-    }
-    return null;
+    return rows.find((r) => r.asl_id === s || r.sigla === s) || null;
   };
-  const da = norm(da_asl);
-  const a = norm(a_asl);
+  const da = trova(da_asl);
+  const a = trova(a_asl);
   if (!da || !a) throw Object.assign(new Error('ASL sconosciuta (usare id 1601xx o sigla BR/TA/BT/BA/FG/LE)'), { status: 400 });
-  const { rows } = await getHotspot(SETTIMANA_DEFAULT);
-  const dest = rows.find((r) => r.asl_id === a.id);
-  const partenza = dest ? dest.attesa_stimata_gg : 30;
+  const partenza = a.attesa_stimata_gg;
   const riduzione = Math.round(ore * 0.85);
-  const nuova = Math.max(1, partenza - riduzione);
   return {
-    da_asl: da, a_asl: a, ore,
+    settimana,
+    da_asl: { id: da.asl_id, sigla: da.sigla, nome: da.nome },
+    a_asl: { id: a.asl_id, sigla: a.sigla, nome: a.nome },
+    ore,
     attesa_stimata_partenza_gg: partenza,
     riduzione_stimata_gg: riduzione,
-    nuova_attesa_stimata_gg: nuova,
-    nota: 'euristica demo: nuova_attesa = max(1, attesa_stimata - round(ore*0.85)); attesa_stimata = 7+40*fuori_tmax_pct',
+    nuova_attesa_stimata_gg: Math.max(1, partenza - riduzione),
+    nota: 'euristica demo: nuova_attesa = max(1, attesa_stimata - round(ore*0.85)); attesa_stimata = 7+40*quota fuori tempo massimo',
   };
-}
-
-export function buildExportCsv(rows, settimana) {
-  const header = 'asl_id,sigla,settimana,prenotazioni,da_garantire,fuori_tmax_tot,fuori_tmax_pct,attesa_stimata_gg\n';
-  const lines = rows.map((r) =>
-    [r.asl_id, r.sigla, `"${settimana}"`, r.prenotazioni, r.da_garantire, r.fuori_tmax_tot, r.fuori_tmax_pct.toFixed(4), r.attesa_stimata_gg].join(','),
-  );
-  return header + lines.join('\n') + '\n';
 }
 
 // Parse CSV caricato via multipart (latin1 → normalizzato). Riusato da /admin/import e dallo script CLI.

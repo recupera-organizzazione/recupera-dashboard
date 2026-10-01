@@ -6,7 +6,7 @@ import { getKpi } from '../lib/api.js';
 // Backend ritorna envelope { data: {...} } con forma canonica store.js
 // ({ prenotazioni, da_garantire, fuori_tmax_tot, settimana, cancellazioni }):
 // qui si normalizza in { totale_* } come atteso dai componenti, senza inventare nulla.
-// Totali attesi CSV: BA 19.370, FG 10.042, LE 7.754, TA 7.113, BT 5.607, BR 4.686
+// Totali attesi settimana 07-11 ott 2024: BA 19.370, FG 10.042, LE 7.754, TA 7.113, BT 5.607, BR 4.686
 
 const DEMO_FALLBACK = {
   totale_prenotazioni: null,
@@ -29,6 +29,8 @@ export function useKpi(settimana) {
         totale_prenotazioni: envelope.prenotazioni,
         totale_da_garantire: envelope.da_garantire,
         totale_fuori_tmax: envelope.fuori_tmax_tot,
+        fuori_tmax_pct: envelope.fuori_tmax_pct,
+        zone_sotto_pressione: envelope.zone_sotto_pressione ?? [],
         settimana: envelope.settimana,
         cancellazioni: envelope.cancellazioni ?? null,
       }
@@ -47,10 +49,8 @@ export function useKpi(settimana) {
         }
       : null;
 
-  const fuoriTmaxPct =
-    data && data.totale_da_garantire > 0 && data.totale_fuori_tmax != null
-      ? (data.totale_fuori_tmax / data.totale_da_garantire) * 100
-      : null;
+  // Quota sulle prenotazioni con classe B/D/P (calcolata dal backend), in %.
+  const fuoriTmaxPct = data?.fuori_tmax_pct != null ? data.fuori_tmax_pct * 100 : null;
 
   return {
     data,

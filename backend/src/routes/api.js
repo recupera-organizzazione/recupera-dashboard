@@ -1,12 +1,10 @@
-import crypto from 'node:crypto';
 import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { stringify } from 'csv-stringify/sync';
-import { hasServiceRole, hasSupabase, supabase } from '../db/supabaseClient.js';
+import { hasServiceRole, supabase } from '../db/supabaseClient.js';
 import { loginThrottle, requireAdmin, signToken, verifyPassword } from '../auth.js';
 import {
-  SETTIMANA_DEFAULT,
   getCancellazioni,
   getHotspot,
   getKpi,
@@ -14,7 +12,7 @@ import {
   getSerie,
   listAsl,
   listPrestazioni,
-  loadCsvRows,
+  listSettimane,
   parseUploadedCsv,
   simulate,
   upsertRows,
@@ -27,10 +25,22 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 // Error shape di contratto: { error: { code, message } } (AGENTS.md §5.1)
 const err = (res, status, code, message) => res.status(status).json({ error: { code, message } });
 
-router.get('/health', (_req, res) => {
-  let righe = null;
-  try { righe = loadCsvRows().length; } catch { /* csv assente in prod Supabase-only */ }
-  res.json({ data: { status: 'ok', settimana_default: SETTIMANA_DEFAULT, righe_csv_locale: righe, supabase: hasSupabase } });
+const settimanaQuery = (req) => (typeof req.query.settimana === 'string' && req.query.settimana ? req.query.settimana : undefined);
+// asl entra in un filtro PostgREST: solo id 1601xx o sigla di 2 lettere.
+const aslQuery = (req) => (typeof req.query.asl === 'string' && /^(\d{6}|[A-Za-z]{2})$/.test(req.query.asl) ? req.query.asl : undefined);
+
+router.get('/health', async (_req, res) => {
+  try {
+    const settimane = await listSettimane();
+    res.json({ data: { status: 'ok', supabase: true, service_role: hasServiceRole, settimana_corrente: settimane[0]?.settimana ?? null, settimane: settimane.length, ultima_sync: settimane[0]?.sincronizzato_at ?? null } });
+  } catch (e) { err(res, 503, 'supabase_error', e.message); }
+});
+
+// Settimane del dataset regionale sincronizzate (dalla più recente).
+router.get('/settimane', async (_req, res) => {
+  try {
+    res.json({ data: await listSettimane() });
+  } catch (e) { err(res, 500, 'settimane_error', e.message); }
 });
 
 // ── Auth admin singolo ─────────────────────────────────────────────────────
@@ -48,20 +58,12 @@ router.post('/auth/login', loginThrottle, async (req, res) => {
   const { username, password } = parsed.data;
   const invalid = () => err(res, 401, 'invalid_credentials', 'Credenziali non valide. Riprova.');
 
-  if (supabase) {
-    const { data, error } = await supabase.from('admin_users')
-      .select('username, password_hash').eq('username', username).maybeSingle();
-    if (error) return err(res, 500, 'auth_error', error.message);
-    if (!data || !verifyPassword(password, data.password_hash)) return invalid();
-  } else {
-    // Dev locale senza Supabase: credenziali bootstrap solo da env (mai in repo).
-    if (!process.env.ADMIN_USER || !process.env.ADMIN_PASSWORD) {
-      return err(res, 503, 'auth_unavailable', 'Login non disponibile: configura Supabase oppure ADMIN_USER/ADMIN_PASSWORD.');
-    }
-    const userOk = username.length === process.env.ADMIN_USER.length
-      && crypto.timingSafeEqual(Buffer.from(username), Buffer.from(process.env.ADMIN_USER));
-    if (!userOk || password !== process.env.ADMIN_PASSWORD) return invalid();
-  }
+  // admin_users è condivisa con recupera-test-server: stesso account per i due pannelli admin.
+  if (!hasServiceRole) return err(res, 503, 'auth_unavailable', 'Login non disponibile: manca SUPABASE_SERVICE_ROLE_KEY in backend/.env.');
+  const { data, error } = await supabase.from('admin_users')
+    .select('username, password_hash').eq('username', username).maybeSingle();
+  if (error) return err(res, 500, 'auth_error', error.message);
+  if (!data || !verifyPassword(password, data.password_hash)) return invalid();
   res.json({ data: { token: signToken(username), username, expires_in: 8 * 3600 } });
 });
 
@@ -88,28 +90,22 @@ router.get('/prestazioni', async (req, res) => {
 
 router.get('/territorio/hotspot', async (req, res) => {
   try {
-    const settimana = typeof req.query.settimana === 'string' ? req.query.settimana : SETTIMANA_DEFAULT;
-    const { rows, fonte } = await getHotspot(settimana);
+    const { rows, fonte, settimana } = await getHotspot(settimanaQuery(req));
     res.json({ data: rows, settimana, fonte });
   } catch (e) { err(res, 500, 'hotspot_error', e.message); }
 });
 
 router.get('/dashboard/kpi', async (req, res) => {
   try {
-    const settimana = typeof req.query.settimana === 'string' ? req.query.settimana : SETTIMANA_DEFAULT;
-    res.json({ data: await getKpi(settimana) });
+    res.json({ data: await getKpi(settimanaQuery(req)) });
   } catch (e) { err(res, 500, 'kpi_error', e.message); }
 });
 
-// Serie storica: il dataset ha 1 sola settimana → 1 punto + nota
-// "dati insufficienti". Mai inventare punti (AGENTS.md §3).
+// Serie storica: un punto per settimana del dataset sincronizzata. Mai inventare punti (AGENTS.md §3).
 router.get('/dashboard/serie', async (req, res) => {
   try {
-    const giorni = req.query.giorni ? Number(req.query.giorni) : 30;
-    const asl = typeof req.query.asl === 'string' ? req.query.asl : undefined;
-    const prestazione = typeof req.query.prestazione === 'string' ? req.query.prestazione : undefined;
-    const settimana = typeof req.query.settimana === 'string' ? req.query.settimana : SETTIMANA_DEFAULT;
-    res.json({ data: await getSerie({ settimana, asl, prestazione }), giorni });
+    const prestazione = typeof req.query.prestazione === 'string' && req.query.prestazione ? req.query.prestazione : undefined;
+    res.json({ data: await getSerie({ asl: aslQuery(req), prestazione }) });
   } catch (e) { err(res, 500, 'serie_error', e.message); }
 });
 
@@ -146,8 +142,7 @@ router.get('/dashboard/cancellazioni', async (req, res) => {
   } catch (e) { err(res, 500, 'cancellazioni_error', e.message); }
 });
 
-// Riassegnazioni: nessun gestionale CUP reale → opportunità derivate dal proxy
-// fuori_tmax, marcate demo. Mai dati random/inventati (AGENTS.md §3).
+// Riassegnazioni: ultime disdette del gestionale e se lo slot è stato riassegnato.
 router.get('/riassegnazioni', async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
@@ -178,9 +173,8 @@ router.post('/simulatori/proiezione', async (req, res) => {
 // GET /export.csv — riusa gli stessi filtri delle GET JSON.
 router.get('/export.csv', async (req, res) => {
   try {
-    const settimana = typeof req.query.settimana === 'string' ? req.query.settimana : SETTIMANA_DEFAULT;
     const asl = typeof req.query.asl === 'string' ? req.query.asl : undefined;
-    const { rows } = await getHotspot(settimana);
+    const { rows, settimana } = await getHotspot(settimanaQuery(req));
     const filtered = asl
       ? rows.filter((r) => r.asl_id === asl || r.sigla.toLowerCase() === asl.toLowerCase())
       : rows;
@@ -201,8 +195,8 @@ router.get('/export.csv', async (req, res) => {
 });
 
 // POST /admin/import (multipart name=file) — SOLO admin autenticato.
-// Upsert idempotente via service_role; senza chiavi Supabase: dry-run di
-// validazione sui conteggi noti (414/6/69).
+// Upsert idempotente via service_role; senza service_role: dry-run di validazione.
+// Di norma non serve: i dati arrivano dalla sync automatica con dati.puglia.it.
 router.post('/admin/import', requireAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return err(res, 400, 'validation_error', 'campo file mancante (multipart name=file)');
   try {
@@ -210,7 +204,7 @@ router.post('/admin/import', requireAdmin, upload.single('file'), async (req, re
     const asls = new Set(rows.map((r) => r.asl_id).filter(Boolean));
     const prest = new Set(rows.map((r) => r.descrizione).filter(Boolean));
     if (!hasServiceRole) {
-      return res.json({ data: { dry_run: true, righe: rows.length, asl_distinte: asls.size, prestazioni_distinte: prest.size, nota: 'Supabase non configurato: nessuna scrittura, solo validazione' } });
+      return res.json({ data: { dry_run: true, righe: rows.length, asl_distinte: asls.size, prestazioni_distinte: prest.size, nota: 'service_role non configurata: nessuna scrittura, solo validazione' } });
     }
     res.json({ data: { dry_run: false, ...(await upsertRows(rows)) } });
   } catch (e) { err(res, 500, 'import_error', e.message); }

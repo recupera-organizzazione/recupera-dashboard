@@ -41,13 +41,14 @@ Target iniziale: Regione Puglia (6 ASL).
 
 ## Dataset
 
-File: `monitoraggio-tempi-di-attesa-07_11-ottobre-2024.csv` (da spostare in `data/`, vedi roadmap).
+File: `data/monitoraggio-tempi-di-attesa-07_11-ottobre-2024.csv` (archivio; la fonte viva è l'API CKAN, vedi sotto).
 
 - Righe: 414 | Encoding reale: `cp1252/latin1` (non UTF-8) | Settimana unica: `07-11 OTTOBRE 2024`, anno 2024
 - 6 ASL: `160114=BA, 160115=FG, 160116=LE, 160112=TA, 160113=BT, 160106=BR`
 - 69 prestazioni (`DESC_PRESTAZIONE` + `COD_PRESTAZIONE` + `ID_PRESTAZIONE`)
 - Colonne: `ASL, ANNO, SETTIMANA_INDICE, ID_PRESTAZIONE, DESC_PRESTAZIONE, COD_PRESTAZIONE, PRENOTAZIONI, PRENOTAZIONI_DAGARANTIRE, PRENOTAZIONI_DAGARANTIRE_B, PRENOTAZIONI_DAGARANTIRE_B_TMAX, PRENOTAZIONI_DAGARANTIRE_D, PRENOTAZIONI_DAGARANTIRE_D_TMAX, PRENOTAZIONI_DAGARANTIRE_P, PRENOTAZIONI_DAGARANTIRE_P_TMAX`
-- Classi priorità: `B=Breve (10gg), D=Differita (30/60gg), P=Programmabile (120gg)`; `*_TMAX` = quota oltre il tempo massimo → proxy di criticità/attesa.
+- Classi priorità: `B=Breve (10gg), D=Differita (30/60gg), P=Programmabile (120gg)`; `*_TMAX` = prenotazioni **entro** il tempo massimo (legenda ufficiale) → oltre = totale classe − `*_TMAX`.
+- **Collegamento:** il dataset è letto dall'API CKAN di dati.puglia.it (18 settimane, 2020-2024) e sincronizzato in Supabase (`dataset_fonte`, `rilevazione_settimanale`); il backend legge solo da Supabase.
 - Limiti noti: una sola settimana (niente trend 30gg reali), nessun giorno di attesa reale, nessun CAP, celle vuote (`Mammografia monolaterale`), un `�` in `TC dell'addome superiore`. Vedi `AGENTS.md`.
 
 ## Schema DB su Supabase (proposto)

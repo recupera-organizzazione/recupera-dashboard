@@ -25,5 +25,6 @@ Fonte: file originale `monitoraggio-tempi-di-attesa-07_11-ottobre-2024.csv`
 ## Limiti (cfr. `AGENTS.md` §3)
 
 - Una sola settimana → serie `ultimi 30 giorni` impossibile: l'API restituisce 1 punto + nota `dati insufficienti`
-- `*_TMAX` = quota oltre tempo max (classi `B/D/P`) → proxy di pressione, non giorni di attesa
+- `*_TMAX` = prenotazioni **entro** il tempo massimo della classe (legenda ufficiale); oltre = totale classe − `*_TMAX`
+- Questo file è solo archivio: il backend legge da Supabase, popolato dall'API CKAN di dati.puglia.it
 - Nessun dato reale su: giorni di attesa, CAP, slot recuperati, tasso conferma → solo euristiche `*_stimato` documentate o seed `demo`

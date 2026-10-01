@@ -3,6 +3,17 @@
 Questo file definisce **scope, limiti e regole** per qualsiasi agente/contributore che lavora su questo repo.
 Il `README.md` è la fonte per stack e roadmap; qui ci sono i vincoli che impediscono di rompere il progetto.
 
+## 0. Prima di qualsiasi cosa: `git pull`
+
+Altri team lavorano sugli stessi repo. **Prima di leggere, modificare o eseguire qualunque cosa**, aggiorna il repo:
+
+```bash
+git pull --ff-only
+```
+
+- Se il pull fallisce (modifiche locali o storie divergenti), fermati e chiedi all'utente: non usare `reset`, `stash` o `push --force` di tua iniziativa.
+- Ripeti il pull prima di ogni commit/push, così lavori sempre sull'ultima versione.
+
 ## 1. Contesto e stato reale (non fidarti dei mock)
 
 - Repo: prototipo statico (`index.html`, `style.css`, `app.js` vanilla). **Non esiste ancora** `backend/`, `frontend/`, `package.json`, `supabase/`.
@@ -22,7 +33,8 @@ Il `README.md` è la fonte per stack e roadmap; qui ci sono i vincoli che impedi
 
 - File: 414 righe, encoding **`cp1252/latin1` non UTF-8** (fallisce `utf-8-sig`; byte `0x92`). Leggere sempre con `latin1/cp1252` e normalizzare in UTF-8. C'è un `�` in `TC dell'addome superiore`.
 - Singola settimana `07-11 OTTOBRE 2024` → **impossibile** produrre trend "ultimi 30 giorni" reali. La serie deve restituire 1 punto + nota `dati insufficienti`, mai inventare 30 punti.
-- Colonne `*_TMAX` = quota oltre tempo max per classe `B/D/P` (Breve/Differita/Programmabile). Usarle come **proxy di pressione**, non come giorni di attesa.
+- Colonne `*_TMAX` = prenotazioni con appuntamento **entro** il tempo massimo della classe `B/D/P` (legenda ufficiale `legendamonittempiattesa.ods`). Oltre il tempo massimo = totale classe − `*_TMAX` (vista `kpi_territorio`, migrazione `00003`). Le colonne `b/d/p_fuori_tmax` di `rilevazione_settimanale` hanno un nome storico ma contengono il valore "entro".
+- **Fonte dati = Supabase.** Il dataset arriva da dati.puglia.it (API CKAN) tramite la sync del test-server (`public.dataset_fonte`, `public.sincronizza_settimana_dataset`): il backend non legge CSV locali a runtime. Il CSV in `data/` resta solo come archivio.
 - **Manca tutto ciò che la UI promette**: giorni di attesa reali, CAP, slot recuperati, tasso di conferma, riassegnazioni. Qualsiasi endpoint su questi deve essere:
   - o calcolato come **euristica documentata** (formula + commento + suffisso `stimato`),
   - o servito da tabella `mock/seed` esplicitamente marcata `demo`.

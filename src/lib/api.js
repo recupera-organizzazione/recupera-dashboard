@@ -104,10 +104,18 @@ export function getKpi(settimana) {
   return request(`/dashboard/kpi${buildQuery({ settimana })}`);
 }
 
-export function getSerie({ giorni = 30, asl = '', prestazione = '' } = {}) {
-  // Nota dataset: 1 sola settimana reale → il backend ritorna
-  // 1 punto + nota dati insufficienti, mai 30 punti inventati.
-  return request(`/dashboard/serie${buildQuery({ giorni, asl, prestazione })}`);
+export function getSettimane() {
+  return request('/settimane');
+}
+
+export function getSerie({ asl = '', prestazione = '' } = {}) {
+  // Un punto per settimana del dataset regionale sincronizzata, mai punti inventati.
+  return request(`/dashboard/serie${buildQuery({ asl, prestazione })}`);
+}
+
+export function getCancellazioni({ da = '', a = '' } = {}) {
+  // Disdette giornaliere dal gestionale (default backend: ultimi 30 giorni)
+  return request(`/dashboard/cancellazioni${buildQuery({ da, a })}`);
 }
 
 export function getHotspot(settimana) {

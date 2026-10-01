@@ -24,5 +24,5 @@ app.use((req, res) => {
 export default app;
 
 app.listen(PORT, () => {
-  console.log(`ReCUPera Backend API in esecuzione sulla porta ${PORT} (supabase: ${process.env.SUPABASE_URL ? 'cfg' : 'csv-fallback'})`);
+  console.log(`ReCUPera Backend API in esecuzione sulla porta ${PORT} (Supabase: ${process.env.SUPABASE_URL})`);
 });

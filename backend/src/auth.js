@@ -6,8 +6,8 @@ import crypto from 'node:crypto';
 // - sessione: token HS256 artigianale `b64url(payload).b64url(hmac)`
 //   con payload { u: username, iat, exp } (default 8h). Niente JWT lib
 //   per non aggiungere dipendenze; formato documentato qui.
-// - senza Supabase: login solo via credenziali bootstrap da env
-//   (ADMIN_USER/ADMIN_PASSWORD, dev locale) con warning esplicito.
+// - account in public.admin_users, condivisa con recupera-test-server
+//   (stesso login per i due pannelli admin); nessun login da variabili d'ambiente.
 
 const N = 16384;
 const R = 8;

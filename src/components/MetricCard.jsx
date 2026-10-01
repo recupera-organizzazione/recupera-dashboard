@@ -1,6 +1,5 @@
-// Card demo esistente — NON toccare i numeri mock qui.
-// La sostituzione con dati reali avviene in MetricGrid.jsx (KPI reali in testata).
-// Ogni valore mock resta marcato demo via aria-label + classe.
+// Card KPI: mostra solo valori passati da MetricGrid (API), nessun numero fisso.
+// Decorazioni opzionali dai dati: progress (0-100) e tags (es. sigle ASL).
 
 export default function MetricCard({ metric }) {
   const trendClass =
@@ -13,41 +12,27 @@ export default function MetricCard({ metric }) {
   return (
     <article
       className={`metric-card ${metric.type === 'emphasis' ? 'emphasis' : ''}`}
-      aria-label={`${metric.label}: ${metric.value} ${metric.unit || ''} (dati demo)`}
+      aria-label={`${metric.label}: ${metric.value} ${metric.unit || ''}`}
     >
       <div className="metric-head">
         <span>{metric.label}</span>
-        <span className={`trend ${trendClass}`}>{metric.trend}</span>
+        {metric.trend && <span className={`trend ${trendClass}`}>{metric.trend}</span>}
       </div>
       <strong>
         {metric.value}
         {metric.unit && <span className="small-unit">{metric.unit}</span>}
       </strong>
       <p>{metric.note}</p>
-      {metric.type === 'emphasis' && (
-        <div className="sparkline" aria-hidden="true">
-          {[38, 52, 42, 65, 54, 76, 92].map((height) => (
-            <i key={height} style={{ height: `${height}%` }} />
-          ))}
-        </div>
-      )}
-      {metric.type === 'days' && (
-        <div className="line-chart" aria-hidden="true">
-          {Array.from({ length: 7 }, (_, index) => (
-            <span key={index} />
-          ))}
-        </div>
-      )}
-      {metric.type === 'confirmation' && (
+      {metric.progress != null && (
         <div className="progress" aria-hidden="true">
-          <i style={{ width: '78.6%' }} />
+          <i style={{ width: `${Math.min(metric.progress, 100)}%` }} />
         </div>
       )}
-      {metric.type === 'pressure' && (
+      {metric.tags?.length > 0 && (
         <div className="mini-tags" aria-hidden="true">
-          <span>BA</span>
-          <span>LE</span>
-          <span>TA</span>
+          {metric.tags.map((tag) => (
+            <span key={tag}>{tag}</span>
+          ))}
         </div>
       )}
     </article>
