@@ -1,88 +1,62 @@
-import crypto from 'node:crypto';
+import { supabase } from './db/supabaseClient.js';
 
-// Autenticazione admin singolo — zero dipendenze (solo node:crypto).
-// - password: scrypt (sale casuale 16B, N=16384 r=8 p=1, chiave 64B),
-//   formato `scrypt$N$r$p$sale_b64$hash_b64`, confronto timing-safe.
-// - sessione: token HS256 artigianale `b64url(payload).b64url(hmac)`
-//   con payload { u: username, iat, exp } (default 8h). Niente JWT lib
-//   per non aggiungere dipendenze; formato documentato qui.
-// - account in public.admin_users, condivisa con recupera-test-server
-//   (stesso login per i due pannelli admin); nessun login da variabili d'ambiente.
+// Autenticazione admin singolo interamente su Supabase Auth (GoTrue).
+// Niente password in public.admin_users (tabella conservata solo perché
+// condivisa con recupera-test-server; la dashboard non la legge più).
+// - login: l'UI invia {username, password}; username deve coincidere con
+//   ADMIN_USER, la password è verificata da Supabase su ADMIN_EMAIL.
+// - ruolo: app_metadata.role === 'admin' (scrivibile solo via Admin API con
+//   service_role, mai dall'utente) — senza, 403 anche con token valido.
+// - sessione: access_token + refresh_token emessi da Supabase (scadenza
+//   configurata nel progetto, default 1h); refresh via POST /auth/refresh.
 
-const N = 16384;
-const R = 8;
-const P = 1;
-const KEYLEN = 64;
-const SALTLEN = 16;
-
-export function hashPassword(password) {
-  const salt = crypto.randomBytes(SALTLEN);
-  const key = crypto.scryptSync(String(password), salt, KEYLEN, { N, r: R, p: P });
-  return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${key.toString('base64')}`;
+export function adminIdentity() {
+  return {
+    username: process.env.ADMIN_USER || 'admin',
+    email: process.env.ADMIN_EMAIL || '',
+  };
 }
 
-export function verifyPassword(password, stored) {
+async function getUserFromToken(token) {
   try {
-    const [tag, n, r, p, saltB64, keyB64] = String(stored).split('$');
-    if (tag !== 'scrypt' || !saltB64 || !keyB64) return false;
-    const key = crypto.scryptSync(String(password), Buffer.from(saltB64, 'base64'), KEYLEN, {
-      N: Number(n), r: Number(r), p: Number(p),
-    });
-    const expected = Buffer.from(keyB64, 'base64');
-    return key.length === expected.length && crypto.timingSafeEqual(key, expected);
-  } catch {
-    return false;
-  }
-}
-
-const b64url = (buf) => Buffer.from(buf).toString('base64url');
-const unb64url = (s) => Buffer.from(String(s), 'base64url').toString('utf8');
-
-let cachedSecret = null;
-export function getTokenSecret() {
-  if (cachedSecret) return cachedSecret;
-  if (process.env.ADMIN_TOKEN_SECRET) {
-    cachedSecret = process.env.ADMIN_TOKEN_SECRET;
-  } else {
-    cachedSecret = crypto.randomBytes(32).toString('hex');
-    console.warn('AVVISO: ADMIN_TOKEN_SECRET assente — segreto effimero, le sessioni scadono al riavvio.');
-  }
-  return cachedSecret;
-}
-
-export function signToken(username, ttlSeconds = 8 * 3600) {
-  const payload = { u: username, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + ttlSeconds };
-  const body = b64url(JSON.stringify(payload));
-  const sig = crypto.createHmac('sha256', getTokenSecret()).update(body).digest('base64url');
-  return `${body}.${sig}`;
-}
-
-export function verifyToken(token) {
-  try {
-    const [body, sig] = String(token).split('.');
-    if (!body || !sig) return null;
-    const expected = crypto.createHmac('sha256', getTokenSecret()).update(body).digest();
-    const actual = Buffer.from(sig, 'base64url');
-    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
-    const payload = JSON.parse(unb64url(body));
-    if (!payload.u || payload.exp * 1000 < Date.now()) return null;
-    return { username: payload.u };
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return null;
+    return data.user;
   } catch {
     return null;
   }
 }
 
+export function isAdminUser(user) {
+  return user?.app_metadata?.role === 'admin';
+}
+
+export function publicUsername(user, fallback) {
+  return user?.user_metadata?.username || fallback || null;
+}
+
 // Middleware: protegge le rotte admin (es. POST /admin/import).
-// Risponde 401 con shape { error: { code, message } } di contratto.
-export function requireAdmin(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  const admin = token ? verifyToken(token) : null;
-  if (!admin) {
-    return res.status(401).json({ error: { code: 'unauthorized', message: 'Accesso riservato: effettua l’accesso come amministratore.' } });
+// 401 token mancante/scaduto/non valido, 403 token valido ma non admin.
+// Shape { error: { code, message } } di contratto.
+export async function requireAdmin(req, res, next) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ error: { code: 'unauthorized', message: 'Accesso riservato: effettua l’accesso come amministratore.' } });
+    }
+    const user = await getUserFromToken(token);
+    if (!user) {
+      return res.status(401).json({ error: { code: 'unauthorized', message: 'Sessione scaduta o non valida: effettua di nuovo l’accesso.' } });
+    }
+    if (!isAdminUser(user)) {
+      return res.status(403).json({ error: { code: 'forbidden', message: 'Accesso riservato agli amministratori.' } });
+    }
+    req.admin = { id: user.id, username: publicUsername(user, adminIdentity().username) };
+    next();
+  } catch (e) {
+    return res.status(503).json({ error: { code: 'auth_error', message: `Verifica sessione non riuscita: ${e.message}` } });
   }
-  req.admin = admin;
-  next();
 }
 
 // Throttle login anti brute-force: 10 tentativi / 5 min per IP (in-memory).

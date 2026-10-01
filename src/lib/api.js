@@ -5,9 +5,11 @@
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
 
-// Sessione admin: token in sessionStorage (scade con la scheda; mai in repo).
+// Sessione admin (Supabase Auth): access_token breve + refresh_token in
+// sessionStorage (scadono con la scheda; mai in repo).
 // Le credenziali non transitano mai qui: solo POST /auth/login le verifica.
 const TOKEN_KEY = 'recupera_token';
+const REFRESH_KEY = 'recupera_refresh_token';
 
 export function getToken() {
   try {
@@ -28,14 +30,27 @@ function setToken(token) {
 export function clearToken() {
   try {
     sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
   } catch {
     /* niente da pulire */
   }
 }
 
-function authHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+function getRefreshToken() {
+  try {
+    return sessionStorage.getItem(REFRESH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setSession({ token, refresh_token }) {
+  setToken(token);
+  try {
+    if (refresh_token) sessionStorage.setItem(REFRESH_KEY, refresh_token);
+  } catch {
+    /* storage non disponibile */
+  }
 }
 
 function buildQuery(params = {}) {
@@ -48,10 +63,22 @@ function buildQuery(params = {}) {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options.headers },
-  });
+  const doFetch = (token) =>
+    fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  let res = await doFetch(getToken());
+  // 401 con refresh disponibile (e non su rotte /auth): un solo rinnovo + retry.
+  if (res.status === 401 && !path.startsWith('/auth/') && getRefreshToken()) {
+    if (await refreshSession()) {
+      res = await doFetch(getToken());
+    }
+  }
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
   const body = isJson ? await res.json().catch(() => null) : await res.text().catch(() => null);
@@ -71,7 +98,7 @@ export function getHealth() {
   return request('/health');
 }
 
-// Auth admin singolo: login salva il token, logout lo revoca lato client.
+// Auth admin singolo: login salva la sessione, logout la revoca lato client.
 // getMe verifica la sessione all'avvio (gate in App.jsx).
 export async function login(username, password) {
   const body = await request('/auth/login', {
@@ -80,8 +107,29 @@ export async function login(username, password) {
   });
   const data = body?.data ?? body;
   if (!data?.token) throw new Error('Risposta di accesso non valida.');
-  setToken(data.token);
+  setSession(data);
   return { username: data.username };
+}
+
+// Rinnovo silenzioso: access_token Supabase breve, refresh automatico al primo 401.
+async function refreshSession() {
+  const refresh_token = getRefreshToken();
+  if (!refresh_token) return false;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token }),
+    });
+    if (!res.ok) throw new Error(`refresh ${res.status}`);
+    const data = (await res.json().catch(() => null))?.data;
+    if (!data?.token) throw new Error('refresh senza token');
+    setSession(data);
+    return true;
+  } catch {
+    clearToken();
+    return false;
+  }
 }
 
 export function logout() {
@@ -155,7 +203,7 @@ export async function postAdminImport(file) {
   form.append('file', file);
   const res = await fetch(`${API_BASE}/admin/import`, {
     method: 'POST',
-    headers: { ...authHeaders() },
+    headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
     body: form,
   });
   if (!res.ok) {

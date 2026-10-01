@@ -74,6 +74,8 @@ Tabelle create con migration Supabase CLI (`supabase/migrations/`):
 | GET | `/api/territorio/hotspot?settimana=` | territory-panel tabella + mappa |
 | GET | `/api/riassegnazioni?limit=10` | queue-panel (mock in DB finché non c'è gestionale CUP) |
 | POST | `/api/simulatori/proiezione {da_asl, a_asl, ore}` | simulator-panel (oggi formula fake `42-value*0.85`) |
+| POST | `/api/auth/login {username, password}` | login admin via Supabase Auth (solo `ADMIN_USER`, ruolo `admin`) |
+| POST | `/api/auth/refresh {refresh_token}` | rinnovo sessione admin |
 | GET | `/api/export.csv?settimana=&asl=` | bottone "Esporta CSV" |
 | POST | `/api/admin/import` (multipart CSV) | bottone "Aggiorna dati" |
 

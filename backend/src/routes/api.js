@@ -3,7 +3,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { stringify } from 'csv-stringify/sync';
 import { hasServiceRole, supabase } from '../db/supabaseClient.js';
-import { loginThrottle, requireAdmin, signToken, verifyPassword } from '../auth.js';
+import { adminIdentity, isAdminUser, loginThrottle, publicUsername, requireAdmin } from '../auth.js';
 import {
   getCancellazioni,
   getHotspot,
@@ -43,10 +43,10 @@ router.get('/settimane', async (_req, res) => {
   } catch (e) { err(res, 500, 'settimane_error', e.message); }
 });
 
-// ── Auth admin singolo ─────────────────────────────────────────────────────
-// POST /auth/login {username, password} → { token, username, expires_in }.
-// Verifica hash scrypt in admin_users (mai in chiaro, mai enumerazione:
-// stesso messaggio per utente inesistente o password errata).
+// ── Auth admin singolo (Supabase Auth) ─────────────────────────────────────
+// POST /auth/login {username, password} → { token, refresh_token, username, expires_in }.
+// username deve coincidere con ADMIN_USER; la password è verificata da Supabase
+// su ADMIN_EMAIL. Stesso messaggio per utente errato o password errata (no enumerazione).
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(256),
@@ -57,14 +57,45 @@ router.post('/auth/login', loginThrottle, async (req, res) => {
   if (!parsed.success) return err(res, 400, 'validation_error', 'Nome utente e password sono obbligatori.');
   const { username, password } = parsed.data;
   const invalid = () => err(res, 401, 'invalid_credentials', 'Credenziali non valide. Riprova.');
+  const { username: expectedUsername, email } = adminIdentity();
+  if (!email) return err(res, 503, 'auth_unavailable', 'Login non configurato: manca ADMIN_EMAIL in backend/.env.');
+  if (username !== expectedUsername) return invalid();
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data?.session) return invalid();
+    if (!isAdminUser(data.session.user)) return invalid();
+    res.json({
+      data: {
+        token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        username: publicUsername(data.session.user, expectedUsername),
+        expires_in: data.session.expires_in ?? 3600,
+      },
+    });
+  } catch (e) { err(res, 503, 'auth_error', `Login non riuscito: ${e.message}`); }
+});
 
-  // admin_users è condivisa con recupera-test-server: stesso account per i due pannelli admin.
-  if (!hasServiceRole) return err(res, 503, 'auth_unavailable', 'Login non disponibile: manca SUPABASE_SERVICE_ROLE_KEY in backend/.env.');
-  const { data, error } = await supabase.from('admin_users')
-    .select('username, password_hash').eq('username', username).maybeSingle();
-  if (error) return err(res, 500, 'auth_error', error.message);
-  if (!data || !verifyPassword(password, data.password_hash)) return invalid();
-  res.json({ data: { token: signToken(username), username, expires_in: 8 * 3600 } });
+// POST /auth/refresh {refresh_token} → nuova coppia di token (ruolo riverificato).
+router.post('/auth/refresh', async (req, res) => {
+  const parsed = z.object({ refresh_token: z.string().min(1) }).safeParse(req.body);
+  if (!parsed.success) return err(res, 400, 'validation_error', 'refresh_token obbligatorio.');
+  try {
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: parsed.data.refresh_token });
+    if (error || !data?.session) {
+      return err(res, 401, 'invalid_session', 'Sessione scaduta: effettua di nuovo l’accesso.');
+    }
+    if (!isAdminUser(data.session.user)) {
+      return err(res, 403, 'forbidden', 'Accesso riservato agli amministratori.');
+    }
+    res.json({
+      data: {
+        token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        username: publicUsername(data.session.user, adminIdentity().username),
+        expires_in: data.session.expires_in ?? 3600,
+      },
+    });
+  } catch (e) { err(res, 503, 'auth_error', `Refresh non riuscito: ${e.message}`); }
 });
 
 // GET /auth/me — verifica sessione (usata dal frontend all'avvio).

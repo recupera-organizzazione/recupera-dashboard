@@ -5,8 +5,8 @@ dotenv.config();
 
 // Server-only. SERVICE_ROLE mai esposta al frontend (solo ANON via VITE_*).
 // Supabase è l'unica fonte dati: senza URL e chiave il backend non parte.
-// Con la sola ANON funzionano le letture pubbliche; login, disdette e import
-// richiedono SUPABASE_SERVICE_ROLE_KEY (admin_users e gestionale hanno RLS senza policy anon).
+// Con la sola ANON funzionano le letture pubbliche; auth, disdette e import
+// richiedono SUPABASE_SERVICE_ROLE_KEY (GoTrue Admin API + tabelle senza policy anon).
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
